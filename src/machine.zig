@@ -6,7 +6,7 @@ const builtin = @import("builtin");
 const Io = std.Io;
 
 /// The agent's own release.
-pub const version = "0.1.0";
+pub const version = "0.1.1";
 /// The helper protocol it speaks, sent as `info.version`: the server refuses helpers older than its
 /// HELPER_MIN_VERSION (direct360-server src/localWorkers.js) and only reads plain numbers ("2.0.3").
 pub const protocol_version = "2.0.4";

@@ -25,6 +25,9 @@ const EXTRA = [
   ...(process.env.D360_SMOKE_WORKER ? ['--worker', process.env.D360_SMOKE_WORKER] : []),
   ...(process.env.D360_SMOKE_FFMPEG ? ['--ffmpeg', process.env.D360_SMOKE_FFMPEG] : []),
 ];
+/** A cut with a pitch pan (camera 1 at yaw -90 pitch 50 → camera 5 at yaw 0 pitch 0): ffmpeg reads a sendcmd file, whose
+ * Windows path once broke the filter text. */
+const PAN_EDL = [{ t: 0, camera: 1 }, { t: 1, camera: 5, panSpeed: 90 }];
 const UPDATE = 'Update the Direct360 Helper: the one on your computer is out of date.';
 const CONFIG = '.direct360-agent.json';
 
@@ -137,7 +140,7 @@ test('pairs, takes a preview render, renders it and reports it done', { timeout:
       id: 'j1',
       input: {
         task: 'render', source_url: `${base}/source.mp4`, result_url: `${base}/runpod/result/r1`,
-        edl: [{ t: 0, camera: 1 }], grid: '3x7', format: 'youtube', yaws: YAWS, pitches: PITCHES,
+        edl: PAN_EDL, grid: '3x7', format: 'youtube', yaws: YAWS, pitches: PITCHES,
         preview: true, watermark: false, source_is_proxy: true,
       },
     };
@@ -199,7 +202,7 @@ test('Windows: the tray app comes up with its icon and takes a job', { skip: pro
       id: 'j1',
       input: {
         task: 'render', source_url: `${base}/source.mp4`, result_url: `${base}/runpod/result/r1`,
-        edl: [{ t: 0, camera: 1 }], grid: '3x7', format: 'youtube', yaws: YAWS, pitches: PITCHES,
+        edl: PAN_EDL, grid: '3x7', format: 'youtube', yaws: YAWS, pitches: PITCHES,
         preview: true, watermark: false, source_is_proxy: true,
       },
     };

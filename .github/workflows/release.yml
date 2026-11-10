@@ -14,7 +14,8 @@ permissions:
   contents: write
 
 env:
-  HELPER_REF: v2.0.4
+  # direct360-helper 2.0.4's job pipeline with the Windows pan fix (13cf0d5).
+  HELPER_REF: 13cf0d55e5f0b541252dfdd40f5829fe78017337
 
 jobs:
   stage-windows:
