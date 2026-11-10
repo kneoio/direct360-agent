@@ -22,8 +22,8 @@ agent lives in the tray (the Direct360 lens mark; it pulses while a job runs). W
 Direct360 → Profile → Processing in the browser; confirm there and it connects by itself. Its menu: the status and the
 running jobs, Connect to Direct360…, Open Direct360, Start when the computer starts, Show log, Quit.
 
-Everything it needs is inside: Node, ffmpeg (GPL) and the job pipeline. Quitting it also stops a running render. The
-same files come as a zip too. Each build is smoke-tested on Windows before release (`test/smoke.test.mjs`: pair, a
+Download it from [Releases](https://github.com/kneoio/direct360-agent/releases/latest). Everything it needs is inside:
+Node, ffmpeg (GPL) and the job pipeline. Quitting it also stops a running render. Each build is smoke-tested on Windows before release (`test/smoke.test.mjs`: pair, a
 preview render, the outdated refusal, the tray app taking a job) and the installer is installed, run and uninstalled.
 
 ## Run from source

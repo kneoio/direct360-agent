@@ -4,4 +4,4 @@ Runs your Direct360 heavy work (stitch, camera grid, preview copy, telemetry, re
 
 Nothing else to install: Node, ffmpeg and the job pipeline (direct360-helper 2.0.4) are inside. The build is not code-signed yet, so Windows may warn about an unknown publisher ("More info" → "Run anyway").
 
-The zip has the same files without an installer. ffmpeg/ffprobe are GPL software (`ffmpeg/LICENSE.txt`, source in `ffmpeg/SOURCE.txt`); see `THIRD-PARTY.txt` for everything bundled.
+ffmpeg/ffprobe are GPL software (`ffmpeg\LICENSE.txt` in the install folder, source in `ffmpeg\SOURCE.txt`); see `THIRD-PARTY.txt` there for everything bundled.

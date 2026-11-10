@@ -2,8 +2,8 @@ name: Release
 
 # A new version in build.zig.zon on master (or a manual run) builds the Windows package on Linux (agent and gpmf2json
 # cross-compiled with Zig, the job pipeline from kneoio/direct360-helper v2.0.4, Node and ffmpeg downloaded), runs the
-# smoke test on Windows against the unzipped package (pair, a preview render, the outdated refusal), then publishes it
-# as the GitHub Release v<version>.
+# smoke test on Windows against it (pair, a preview render, the outdated refusal, the tray app), builds the installer
+# and checks it installs, runs and uninstalls, then publishes the installer as the GitHub Release v<version>.
 on:
   push:
     branches: [master]
@@ -94,10 +94,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: windows-x64
-          path: dist
-      - uses: actions/download-artifact@v4
-        with:
           name: windows-installer
           path: dist
       - name: Publish
@@ -106,7 +102,7 @@ jobs:
         run: |
           version=$(sed -n 's/.*\.version = "\(.*\)".*/\1/p' build.zig.zon)
           if gh release view "v$version" >/dev/null 2>&1; then
-            gh release upload "v$version" dist/*.zip dist/*.exe --clobber
+            gh release upload "v$version" dist/*.exe --clobber
           else
-            gh release create "v$version" dist/*.exe dist/*.zip --target "$GITHUB_SHA" --title "Direct360 agent $version" --notes-file build/release-notes.md
+            gh release create "v$version" dist/*.exe --target "$GITHUB_SHA" --title "Direct360 agent $version" --notes-file build/release-notes.md
           fi
