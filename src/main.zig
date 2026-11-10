@@ -2,13 +2,17 @@
 //! renders) on their own computer instead of the cloud. It takes the same jobs a cloud worker takes from the
 //! Direct360 server and runs them with the worker pipeline (worker/render.js) and the computer's own ffmpeg.
 //!
-//!   direct360-agent pair ABCD-EFGH     once, with the code from Profile → Processing
-//!   direct360-agent                    then keep it running
+//! On Windows, started without a command, it is the tray app: an icon with a menu, connecting in the browser, no
+//! console window. Elsewhere, or with --headless, it runs in the terminal:
+//!
+//!   direct360-agent pair ABCD-EFGH     pair with the code from Profile → Processing
+//!   direct360-agent connect            pair in the browser instead
+//!   direct360-agent                    keep it running
 //!   direct360-agent info               what this computer reports
 //!   direct360-agent log                the last lines of the log file
 //!
 //! Options: --server <url>, --ffmpeg <folder with ffmpeg and ffprobe>, --worker <path to render.js>,
-//! --node <path to node>, --verbose, --no-log (no log file; while testing it is on by default).
+//! --node <path to node>, --verbose, --headless (no tray), --no-log (no log file; while testing it is on by default).
 const std = @import("std");
 const builtin = @import("builtin");
 const Io = std.Io;
@@ -19,14 +23,18 @@ const job = @import("job.zig");
 const jobs = @import("jobs.zig");
 const log = @import("log.zig");
 const machine = @import("machine.zig");
+const platform = @import("platform.zig");
+const sess = @import("session.zig");
+const connect = @import("connect.zig");
+const tray_windows = @import("tray_windows.zig");
 
 const usage =
-    \\Usage: direct360-agent [pair <code> | info | log] [--server <url>] [--ffmpeg <folder>] [--worker <render.js>] [--node <node>] [--verbose] [--no-log]
+    \\Usage: direct360-agent [pair <code> | connect | info | log] [--server <url>] [--ffmpeg <folder>] [--worker <render.js>] [--node <node>] [--verbose] [--headless] [--no-log]
     \\
 ;
 
 const Options = struct {
-    command: enum { run, pair, info, log, version } = .run,
+    command: enum { run, pair, connect, info, log, version } = .run,
     code: ?[]const u8 = null,
     server: ?[]const u8 = null,
     ffmpeg_dir: ?[]const u8 = null,
@@ -34,6 +42,7 @@ const Options = struct {
     node: ?[]const u8 = null,
     verbose: bool = false,
     log_file: bool = true,
+    headless: bool = false,
 };
 
 pub fn parseArgs(args: []const []const u8) !Options {
@@ -58,6 +67,10 @@ pub fn parseArgs(args: []const []const u8) !Options {
             o.node = try value.next(args, &i);
         } else if (std.mem.eql(u8, a, "--verbose")) {
             o.verbose = true;
+        } else if (std.mem.eql(u8, a, "--headless")) {
+            o.headless = true;
+        } else if (std.mem.eql(u8, a, "connect")) {
+            o.command = .connect;
         } else if (std.mem.eql(u8, a, "--no-log")) {
             o.log_file = false;
         } else if (std.mem.eql(u8, a, "log")) {
@@ -113,15 +126,21 @@ fn fail(comptime fmt: []const u8, args: anytype) noreturn {
 }
 
 pub fn main(init: std.process.Init) !void {
+    platform.attachParentConsole();
     const gpa = init.gpa;
     const io = init.io;
     const arena = init.arena.allocator();
     const env = init.environ_map;
     const args = try init.minimal.args.toSlice(arena);
     const opts = parseArgs(args) catch fail("{s}", .{usage});
+    const tray_app = builtin.os.tag == .windows and opts.command == .run and !opts.headless;
 
     if (opts.command == .version) {
         std.debug.print("direct360-agent {s}\n", .{machine.version});
+        return;
+    }
+    if (tray_app and !platform.firstInstance()) {
+        tray_windows.pokeRunningCopy();
         return;
     }
 
@@ -134,6 +153,7 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
     if (opts.log_file) if (log_path) |p| log.openFile(io, p);
+    if (tray_app) log.say(io, "Direct360 agent {s} started (tray)", .{machine.version});
 
     // A release bundles node/, ffmpeg/ and worker/ beside the agent; each is used when present, unless given.
     const exe_suffix = if (builtin.os.tag == .windows) ".exe" else "";
@@ -147,10 +167,6 @@ pub fn main(init: std.process.Init) !void {
     // ffmpeg: that folder, else the one on PATH. render.js reads D360_FFMPEG / D360_FFPROBE.
     const ffmpeg = if (ffmpeg_dir) |d| try std.fs.path.join(arena, &.{ d, "ffmpeg" ++ exe_suffix }) else "ffmpeg";
     const ffprobe = if (ffmpeg_dir) |d| try std.fs.path.join(arena, &.{ d, "ffprobe" ++ exe_suffix }) else "ffprobe";
-    if (machine.output(arena, io, &.{ ffmpeg, "-hide_banner", "-version" }) == null)
-        fail("ffmpeg was not found ({s}). Install ffmpeg, or pass --ffmpeg <folder that has ffmpeg and ffprobe>.", .{ffmpeg});
-    if (machine.output(arena, io, &.{ ffprobe, "-hide_banner", "-version" }) == null)
-        fail("ffprobe was not found ({s}). It comes with ffmpeg; pass --ffmpeg <folder> if it is elsewhere.", .{ffprobe});
     try env.put("D360_FFMPEG", ffmpeg);
     try env.put("D360_FFPROBE", ffprobe);
     // render.js also calls `ffmpeg` by name in places: the chosen folder goes first on PATH.
@@ -159,21 +175,30 @@ pub fn main(init: std.process.Init) !void {
         const old = env.get("PATH") orelse "";
         try env.put("PATH", try std.mem.concat(arena, u8, &.{ d, if (old.len > 0) sep else "", old }));
     }
+    const render_js = try findRenderJs(arena, io, opts.worker);
 
-    const render_js = (try findRenderJs(arena, io, opts.worker)) orelse
-        fail("worker/render.js was not found. Pass --worker <path to render.js> (it is in kneoio/direct360-helper).", .{});
-    if (machine.output(arena, io, &.{ node, "--version" }) == null)
-        fail("Node.js was not found ({s}); the worker pipeline still runs on Node. Install Node 20+ or pass --node <path>.", .{node});
+    // What is missing to run jobs, as one sentence: the terminal stops with it, the tray shows it.
+    const missing: ?[]const u8 = if (machine.output(arena, io, &.{ ffmpeg, "-hide_banner", "-version" }) == null)
+        try std.fmt.allocPrint(arena, "ffmpeg was not found ({s}). Install ffmpeg, or pass --ffmpeg <folder that has ffmpeg and ffprobe>.", .{ffmpeg})
+    else if (machine.output(arena, io, &.{ ffprobe, "-hide_banner", "-version" }) == null)
+        try std.fmt.allocPrint(arena, "ffprobe was not found ({s}). It comes with ffmpeg; pass --ffmpeg <folder> if it is elsewhere.", .{ffprobe})
+    else if (render_js == null)
+        "worker/render.js was not found. Pass --worker <path to render.js> (it is in kneoio/direct360-helper)."
+    else if (machine.output(arena, io, &.{ node, "--version" }) == null)
+        try std.fmt.allocPrint(arena, "Node.js was not found ({s}); the job pipeline still runs on Node. Install Node 20+ or pass --node <path>.", .{node})
+    else
+        null;
+    if (missing) |m| if (!tray_app) fail("{s}", .{m});
 
     // GoPro telemetry: GPMF2JSON, else worker/gpmf/gpmf2json beside render.js.
     var gpmf: ?[]const u8 = env.get("GPMF2JSON");
-    if (gpmf == null) {
-        const beside = try std.fs.path.join(arena, &.{ std.fs.path.dirname(render_js) orelse ".", "gpmf", "gpmf2json" ++ exe_suffix });
+    if (gpmf == null) if (render_js) |r| {
+        const beside = try std.fs.path.join(arena, &.{ std.fs.path.dirname(r) orelse ".", "gpmf", "gpmf2json" ++ exe_suffix });
         if (exists(io, beside)) {
             gpmf = beside;
             try env.put("GPMF2JSON", beside);
         }
-    }
+    };
     const gpu_stitch = env.get("D360_GPU_STITCH") orelse "gpu-stitch";
     const info = try machine.collect(arena, io, .{ .ffmpeg = ffmpeg, .ffprobe = ffprobe, .gpmf = gpmf }, gpu_stitch, env.get("COMPUTERNAME"));
 
@@ -186,6 +211,8 @@ pub fn main(init: std.process.Init) !void {
     const cfg_path = (try config.path(arena, env)) orelse fail("No home folder (HOME / USERPROFILE) to keep the pairing in.", .{});
     var cfg = try config.load(arena, io, cfg_path);
     if (opts.server) |s| cfg.server = s;
+    var session = try sess.Session.init(gpa, io, cfg.server, cfg.token, cfg.web);
+    defer session.deinit();
 
     if (opts.command == .pair) {
         var api = Api.init(gpa, io, cfg.server, "");
@@ -197,13 +224,22 @@ pub fn main(init: std.process.Init) !void {
         };
         defer r.deinit(gpa);
         const Paired = struct { token: []const u8 };
-        const paired = try std.json.parseFromSliceLeaky(Paired, arena, r.body, .{ .ignore_unknown_fields = true });
-        try config.save(gpa, io, cfg_path, .{ .server = cfg.server, .token = paired.token });
+        const paired = try std.json.parseFromSliceLeaky(Paired, arena, r.body, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
+        try config.save(gpa, io, cfg_path, .{ .server = cfg.server, .token = paired.token, .web = cfg.web });
         log.say(io, "Paired with {s}. Now start the agent: direct360-agent", .{cfg.server});
         return;
     }
 
-    if (cfg.token.len == 0) fail("This agent is not paired yet. In Direct360, open Profile → Processing for a code, then run:\n  direct360-agent pair <code>", .{});
+    var connector: connect.Connector = .{ .gpa = gpa, .io = io, .session = &session, .info = &info, .config_path = cfg_path };
+    if (opts.command == .connect) {
+        connector.start();
+        while (connector.active.load(.acquire)) io.sleep(.fromMilliseconds(200), .awake) catch break;
+        const now = try session.creds(io, arena);
+        if (now.token.len == 0 or !session.changed(0)) fail("Not connected.", .{});
+        return;
+    }
+
+    if (!tray_app and cfg.token.len == 0) fail("This agent is not paired yet. In Direct360, open Profile → Processing for a code, then run:\n  direct360-agent pair <code>\nor connect in the browser: direct360-agent connect", .{});
     log.say(io, "ffmpeg {s}, {d} threads, {d:.0} GB, hardware encoders: {s}", .{
         if (info.ffmpeg.len > 0) info.ffmpeg else "?",
         info.cpuThreads,
@@ -225,13 +261,38 @@ pub fn main(init: std.process.Init) !void {
         .token = cfg.token,
         .env = env,
         .node = node,
-        .render_js = render_js,
+        .render_js = render_js orelse "",
         .gpu_stitch = info.gpuStitch,
         .verbose = opts.verbose,
         .table = &table,
         .active = &active,
     };
-    agent.serve(&ctx, &info) catch |err| switch (err) {
+
+    if (tray_app) {
+        platform.endChildrenWithAgent();
+        if (missing) |m| {
+            log.say(io, "cannot run jobs: {s}", .{m});
+            session.setStatus(io, .stopped, m);
+        } else {
+            const loop = try std.Thread.spawn(.{}, agent.supervise, .{ &ctx, &info, &session });
+            loop.detach();
+        }
+        if (cfg.token.len == 0) connector.start();
+        var t: tray_windows.Tray = .{
+            .gpa = gpa,
+            .io = io,
+            .session = &session,
+            .table = &table,
+            .connector = &connector,
+            .log_path = if (opts.log_file) log_path else null,
+            .exe_path = std.process.executablePathAlloc(io, arena) catch "direct360-agent.exe",
+            .show_log = true,
+        };
+        tray_windows.run(&t) catch |err| fail("The tray icon could not be shown: {s}", .{@errorName(err)});
+        std.process.exit(0);
+    }
+
+    agent.serve(&ctx, &info, &session, 0) catch |err| switch (err) {
         error.NotPaired => fail("This agent is no longer paired. Pair it again from Profile → Processing.", .{}),
         error.Outdated => fail("This agent is too old for the server; update it.", .{}),
         else => fail("The agent stopped: {s}", .{@errorName(err)}),
@@ -262,4 +323,6 @@ test {
     _ = @import("jobs.zig");
     _ = @import("job.zig");
     _ = @import("machine.zig");
+    _ = @import("session.zig");
+    _ = @import("connect.zig");
 }

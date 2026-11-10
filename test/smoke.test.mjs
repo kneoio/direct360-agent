@@ -33,7 +33,9 @@ const PITCHES = [50, 50, 50, 0, 0, 0, -50, -50, -50, 50, 50, 50, 0, 0, 0, -50, -
 
 function runHelper(args, home) {
   const env = { ...process.env, HOME: home, USERPROFILE: home };
-  const child = spawn(AGENT, [...args, ...EXTRA, '--verbose'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  // Without a command the Windows agent is the tray app; these runs are the terminal agent.
+  const headless = args.length === 0 ? ['--headless'] : [];
+  const child = spawn(AGENT, [...args, ...headless, ...EXTRA, '--verbose'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   child.stdout.on('data', (d) => { out += d; });
   child.stderr.on('data', (d) => { out += d; });
@@ -168,6 +170,46 @@ test('an outdated helper is refused and says to update', { timeout: 60000 }, asy
     assert.equal(await run.exit, 1);
     assert.ok(run.out().includes(UPDATE), run.out());
   } finally {
+    server.closeAllConnections?.();
+    await new Promise((r) => server.close(r));
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('Windows: the tray app comes up with its icon and takes a job', { skip: process.platform !== 'win32', timeout: 240000 }, async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'd360-tray-'));
+  const clip = path.join(tmp, 'pano.mp4');
+  const made = spawnSync(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-y',
+    '-f', 'lavfi', '-i', 'testsrc2=size=1024x512:rate=30:duration=2',
+    '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2',
+    '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-c:a', 'aac', '-shortest', clip], { encoding: 'utf8' });
+  assert.equal(made.status, 0, made.stderr);
+  const { server, base, state } = await standIn({ clip });
+  const env = { ...process.env, HOME: tmp, USERPROFILE: tmp };
+  fs.writeFileSync(path.join(tmp, CONFIG), JSON.stringify({ server: base, token: 't0k' }));
+  const child = spawn(AGENT, [...EXTRA], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  child.stdout.on('data', (d) => { out += d; });
+  child.stderr.on('data', (d) => { out += d; });
+  const logFile = path.join(tmp, '.direct360-agent.log');
+  const logText = () => (fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf8') : '');
+  try {
+    await until(() => state.online, 30000, `online\n${out}\n${logText()}`);
+    state.job = {
+      id: 'j1',
+      input: {
+        task: 'render', source_url: `${base}/source.mp4`, result_url: `${base}/runpod/result/r1`,
+        edl: [{ t: 0, camera: 1 }], grid: '3x7', format: 'youtube', yaws: YAWS, pitches: PITCHES,
+        preview: true, watermark: false, source_is_proxy: true,
+      },
+    };
+    await until(() => state.done, 200000, `job done\n${logText()}`);
+    assert.equal(state.done.error, undefined, `${state.done.error}\n${logText()}`);
+    assert.match(logText(), /started \(tray\)/);
+    assert.match(logText(), /tray icon ready/);
+    assert.match(logText(), /render done/);
+  } finally {
+    spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F']);
     server.closeAllConnections?.();
     await new Promise((r) => server.close(r));
     fs.rmSync(tmp, { recursive: true, force: true });

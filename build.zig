@@ -12,7 +12,11 @@ pub fn build(b: *std.Build) void {
         .link_libc = target.result.os.tag == .macos,
     });
 
+    if (target.result.os.tag == .windows) root.addWin32ResourceFile(.{ .file = b.path("assets/resources.rc") });
+
     const exe = b.addExecutable(.{ .name = "direct360-agent", .root_module = root });
+    // The Windows program lives in the tray: no console window of its own.
+    if (target.result.os.tag == .windows) exe.subsystem = .windows;
     b.installArtifact(exe);
 
     const run = b.addRunArtifact(exe);

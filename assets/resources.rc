@@ -1,0 +1,7 @@
+// Windows resources: the program icon (Explorer, installer, taskbar) and the tray icons, black for a light taskbar
+// and white for a dark one, each with a faint version for the pulse while a job runs.
+1 ICON "app.ico"
+101 ICON "tray-black.ico"
+102 ICON "tray-black-dim.ico"
+103 ICON "tray-white.ico"
+104 ICON "tray-white-dim.ico"

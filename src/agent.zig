@@ -1,5 +1,6 @@
 //! The agent's main loop: say hello, report live usage, and take jobs from the server one long poll at a time,
-//! running up to `jobs.slots` at once.
+//! running up to `jobs.slots` at once. `supervise` keeps it going for the tray app: it waits for a pairing, runs the
+//! loop with it, and starts again when the pairing changes.
 const std = @import("std");
 const Io = std.Io;
 const Api = @import("api.zig").Api;
@@ -8,6 +9,8 @@ const job = @import("job.zig");
 const jobs = @import("jobs.zig");
 const log = @import("log.zig");
 const machine = @import("machine.zig");
+const sess = @import("session.zig");
+const Session = sess.Session;
 
 const stats_busy_ms = 3000;
 const stats_idle_ms = 15000;
@@ -23,7 +26,7 @@ const Stats = struct {
     jobs: []const JobStat,
 };
 
-fn statsLoop(ctx: *job.Ctx, info: *const machine.Info) void {
+fn statsLoop(ctx: *job.Ctx, info: *const machine.Info, session: *Session, generation: u64) void {
     const io = ctx.io;
     var api = Api.init(ctx.gpa, io, ctx.server, ctx.token);
     defer api.deinit();
@@ -37,6 +40,7 @@ fn statsLoop(ctx: *job.Ctx, info: *const machine.Info) void {
         const wait: u64 = if (busy or first) stats_busy_ms else stats_idle_ms;
         first = false;
         io.sleep(.fromMilliseconds(@intCast(wait)), .awake) catch return;
+        if (session.changed(generation)) return;
         since_hello += wait;
         if (since_hello >= hello_every_ms) {
             since_hello = 0;
@@ -68,19 +72,36 @@ fn statsLoop(ctx: *job.Ctx, info: *const machine.Info) void {
 
 const NextJob = struct { id: []const u8, input: std.json.Value };
 
-pub fn serve(ctx: *job.Ctx, info: *const machine.Info) !void {
+/// Takes jobs with `ctx`'s pairing until the server refuses it (`error.NotPaired`, `error.Outdated`) or the session's
+/// pairing changes (`error.Restart`). The server not being reached is not an error: the loop keeps trying.
+pub fn serve(ctx: *job.Ctx, info: *const machine.Info, session: *Session, generation: u64) !void {
     const io = ctx.io;
     var api = Api.init(ctx.gpa, io, ctx.server, ctx.token);
     defer api.deinit();
-    const hello = try api.post("/local-worker/hello", .{ .info = info.* });
-    hello.deinit(ctx.gpa);
+    var backoff_ms: u64 = 0;
+    // Hello first; while the server is not reached, keep trying.
+    while (true) {
+        if (session.changed(generation)) return error.Restart;
+        const hello = api.post("/local-worker/hello", .{ .info = info.* }) catch |err| {
+            if (err == error.NotPaired or err == error.Outdated) return err;
+            backoff_ms = @min(30_000, if (backoff_ms == 0) 2000 else backoff_ms * 2);
+            session.setStatus(io, .unreachable_server, @errorName(err));
+            log.say(io, "server not reached ({s}); trying again in {d}s", .{ @errorName(err), backoff_ms / 1000 });
+            io.sleep(.fromMilliseconds(@intCast(backoff_ms)), .awake) catch return;
+            continue;
+        };
+        hello.deinit(ctx.gpa);
+        break;
+    }
+    backoff_ms = 0;
+    session.setStatus(io, .ready, "");
     log.say(io, "Direct360 agent {s} is running for {s}", .{ machine.version, ctx.server });
 
-    const stats_thread = try std.Thread.spawn(.{}, statsLoop, .{ ctx, info });
+    const stats_thread = try std.Thread.spawn(.{}, statsLoop, .{ ctx, info, session, generation });
     stats_thread.detach();
 
-    var backoff_ms: u64 = 0;
     while (true) {
+        if (session.changed(generation)) return error.Restart;
         if (ctx.active.load(.acquire) >= jobs.slots) {
             io.sleep(.fromMilliseconds(300), .awake) catch return;
             continue;
@@ -88,11 +109,13 @@ pub fn serve(ctx: *job.Ctx, info: *const machine.Info) !void {
         const r = api.get("/local-worker/jobs/next") catch |err| {
             if (err == error.NotPaired or err == error.Outdated) return err;
             backoff_ms = @min(30_000, if (backoff_ms == 0) 2000 else backoff_ms * 2);
+            session.setStatus(io, .unreachable_server, @errorName(err));
             log.say(io, "server not reached ({s}); trying again in {d}s", .{ @errorName(err), backoff_ms / 1000 });
             io.sleep(.fromMilliseconds(@intCast(backoff_ms)), .awake) catch return;
             continue;
         };
         defer r.deinit(ctx.gpa);
+        if (backoff_ms != 0) session.setStatus(io, .ready, "");
         backoff_ms = 0;
         if (r.status == 204 or r.body.len == 0) continue;
         var parsed = std.json.parseFromSlice(NextJob, ctx.gpa, r.body, .{ .ignore_unknown_fields = true }) catch |err| {
@@ -111,5 +134,49 @@ pub fn serve(ctx: *job.Ctx, info: *const machine.Info) !void {
             continue;
         };
         t.detach();
+    }
+}
+
+fn waitForChange(io: Io, session: *Session, generation: u64) void {
+    while (!session.changed(generation)) io.sleep(.fromMilliseconds(500), .awake) catch return;
+}
+
+/// The tray app's job loop: runs with the session's pairing, waits while there is none or the server refused this
+/// version, and starts again whenever the pairing changes. Never returns.
+pub fn supervise(base: *const job.Ctx, info: *const machine.Info, session: *Session) void {
+    const io = base.io;
+    while (true) {
+        // One allocation per pairing, kept: job threads of an older pairing may still use their copy.
+        const creds = session.creds(io, base.gpa) catch {
+            io.sleep(.fromSeconds(1), .awake) catch return;
+            continue;
+        };
+        if (creds.token.len == 0) {
+            session.setStatus(io, .unpaired, "");
+            waitForChange(io, session, creds.generation);
+            continue;
+        }
+        session.setStatus(io, .starting, "");
+        const ctx = base.gpa.create(job.Ctx) catch return;
+        ctx.* = base.*;
+        ctx.server = creds.server;
+        ctx.token = creds.token;
+        serve(ctx, info, session, creds.generation) catch |err| switch (err) {
+            error.Restart => {},
+            error.NotPaired => {
+                log.say(io, "the server no longer knows this agent; connect again from the tray", .{});
+                session.setStatus(io, .unpaired, "");
+                waitForChange(io, session, creds.generation);
+            },
+            error.Outdated => {
+                session.setStatus(io, .outdated, "");
+                waitForChange(io, session, creds.generation);
+            },
+            else => {
+                log.say(io, "the job loop stopped: {s}", .{@errorName(err)});
+                session.setStatus(io, .stopped, @errorName(err));
+                waitForChange(io, session, creds.generation);
+            },
+        };
     }
 }

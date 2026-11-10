@@ -74,5 +74,29 @@ jobs:
         env:
           D360_SMOKE_AGENT: pkg\direct360-agent.exe
         run: |
-          pkg\direct360-agent.exe info
           node --test test/smoke.test.mjs
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path build.zig.zon -Pattern '\.version = "(.+)"').Matches[0].Groups[1].Value
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc /Q "/DSourceDir=$PWD\pkg" "/DAppVersion=$version" "/DOutputDir=$PWD\dist" build\windows\installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "iscc failed" }
+      - name: Install, check, uninstall
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem dist\Direct360AgentSetup-*.exe).FullName
+          Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+          $dir = "$env:LOCALAPPDATA\Programs\Direct360 Agent"
+          if (-not (Test-Path "$dir\direct360-agent.exe")) { throw "not installed" }
+          $p = Start-Process "$dir\direct360-agent.exe" -ArgumentList 'info' -Wait -PassThru -NoNewWindow -RedirectStandardError info.txt
+          Get-Content info.txt
+          if ($p.ExitCode -ne 0 -or -not (Select-String -Path info.txt -Pattern '"ffmpeg"')) { throw "the installed agent did not run" }
+          Start-Process "$dir\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES' -Wait
+          Start-Sleep -Seconds 3
+          if (Test-Path "$dir\direct360-agent.exe") { throw "not uninstalled" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/Direct360AgentSetup-*.exe

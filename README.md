@@ -11,23 +11,20 @@ process tree when the server cancels it, and reports the result. ffmpeg does the
 
 ## Status
 
-Pairing, jobs, progress, cancel, live stats, machine info and a log file work, checked end to end against the Direct360
-server. Jobs still run the job pipeline of `kneoio/direct360-helper` 2.0.4 (`worker/render.js`) on Node; porting it is
-the next stage. Not yet: tray icon, pairing from the browser, self-update, installers.
+Windows: a tray app with an installer, connecting in the browser like direct360-helper 2.0.4. Jobs still run the job
+pipeline of `kneoio/direct360-helper` 2.0.4 (`worker/render.js`) on Node, bundled; porting it is the next stage. Not
+yet: self-update, macOS and Linux packages.
 
-## Windows package
+## Windows
 
-Each [release](https://github.com/kneoio/direct360-agent/releases) has `direct360-agent-<version>-windows-x64.zip` with
-everything inside: the agent, Node, ffmpeg (GPL) and the job pipeline. Unzip it anywhere, then:
+`Direct360AgentSetup-<version>.exe` installs it for the current user (no administrator rights) and starts it. The
+agent lives in the tray (the Direct360 lens mark; it pulses while a job runs). When it is not connected yet it opens
+Direct360 → Profile → Processing in the browser; confirm there and it connects by itself. Its menu: the status and the
+running jobs, Connect to Direct360…, Open Direct360, Start when the computer starts, Show log, Quit.
 
-```
-direct360-agent.exe pair ABCD-EFGH     # once, code from Profile → Processing
-direct360-agent.exe                    # keep it running
-direct360-agent.exe log                # the last lines of its log
-```
-
-The package is built by `build/stage.mjs` and smoke-tested on Windows (`test/smoke.test.mjs`: pair, a preview render, the
-outdated refusal) before each release (`.github/workflows/release.yml`).
+Everything it needs is inside: Node, ffmpeg (GPL) and the job pipeline. Quitting it also stops a running render. The
+same files come as a zip too. Each build is smoke-tested on Windows before release (`test/smoke.test.mjs`: pair, a
+preview render, the outdated refusal, the tray app taking a job) and the installer is installed, run and uninstalled.
 
 ## Run from source
 
@@ -39,6 +36,9 @@ direct360-agent --worker ../direct360-helper/worker/render.js                  #
 direct360-agent info --worker ../direct360-helper/worker/render.js             # what this computer reports
 direct360-agent log                                                            # the last lines of the log
 ```
+
+On Windows, `--headless` runs it in the terminal instead of the tray; `direct360-agent connect` pairs in the browser
+from the terminal.
 
 Options: `--server <url>` (default `https://direct360.app/api`), `--ffmpeg <folder with ffmpeg and ffprobe>`,
 `--worker <path to render.js>`, `--node <path>`, `--verbose`, `--no-log`. Beside a packaged agent, `node/`, `ffmpeg/`
