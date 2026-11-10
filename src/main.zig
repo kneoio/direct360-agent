@@ -5,9 +5,10 @@
 //!   direct360-agent pair ABCD-EFGH     once, with the code from Profile → Processing
 //!   direct360-agent                    then keep it running
 //!   direct360-agent info               what this computer reports
+//!   direct360-agent log                the last lines of the log file
 //!
 //! Options: --server <url>, --ffmpeg <folder with ffmpeg and ffprobe>, --worker <path to render.js>,
-//! --node <path to node>, --verbose.
+//! --node <path to node>, --verbose, --no-log (no log file; while testing it is on by default).
 const std = @import("std");
 const builtin = @import("builtin");
 const Io = std.Io;
@@ -20,18 +21,19 @@ const log = @import("log.zig");
 const machine = @import("machine.zig");
 
 const usage =
-    \\Usage: direct360-agent [pair <code> | info] [--server <url>] [--ffmpeg <folder>] [--worker <render.js>] [--node <node>] [--verbose]
+    \\Usage: direct360-agent [pair <code> | info | log] [--server <url>] [--ffmpeg <folder>] [--worker <render.js>] [--node <node>] [--verbose] [--no-log]
     \\
 ;
 
 const Options = struct {
-    command: enum { run, pair, info, version } = .run,
+    command: enum { run, pair, info, log, version } = .run,
     code: ?[]const u8 = null,
     server: ?[]const u8 = null,
     ffmpeg_dir: ?[]const u8 = null,
     worker: ?[]const u8 = null,
     node: []const u8 = "node",
     verbose: bool = false,
+    log_file: bool = true,
 };
 
 pub fn parseArgs(args: []const []const u8) !Options {
@@ -56,6 +58,10 @@ pub fn parseArgs(args: []const []const u8) !Options {
             o.node = try value.next(args, &i);
         } else if (std.mem.eql(u8, a, "--verbose")) {
             o.verbose = true;
+        } else if (std.mem.eql(u8, a, "--no-log")) {
+            o.log_file = false;
+        } else if (std.mem.eql(u8, a, "log")) {
+            o.command = .log;
         } else if (std.mem.eql(u8, a, "--version") or std.mem.eql(u8, a, "-v")) {
             o.command = .version;
         } else if (std.mem.eql(u8, a, "pair")) {
@@ -88,6 +94,19 @@ fn findRenderJs(arena: std.mem.Allocator, io: Io, given: ?[]const u8) !?[]const 
     return null;
 }
 
+/// The last `n` lines of `text`.
+pub fn lastLines(text: []const u8, n: usize) []const u8 {
+    var count: usize = 0;
+    var i = std.mem.trimEnd(u8, text, "\n").len;
+    while (i > 0) : (i -= 1) {
+        if (text[i - 1] == '\n') {
+            count += 1;
+            if (count == n) return text[i..];
+        }
+    }
+    return text;
+}
+
 fn fail(comptime fmt: []const u8, args: anytype) noreturn {
     std.debug.print(fmt ++ "\n", args);
     std.process.exit(1);
@@ -106,6 +125,16 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
+    const home = env.get("HOME") orelse env.get("USERPROFILE");
+    const log_path = if (home) |h| try std.fs.path.join(arena, &.{ h, log.file_name }) else null;
+    if (opts.command == .log) {
+        const p = log_path orelse fail("No home folder (HOME / USERPROFILE), so there is no log file.", .{});
+        const text = Io.Dir.cwd().readFileAlloc(io, p, arena, .unlimited) catch fail("No log yet ({s}).", .{p});
+        std.debug.print("{s}\n{s}", .{ p, lastLines(text, 80) });
+        return;
+    }
+    if (opts.log_file) if (log_path) |p| log.openFile(io, p);
+
     // ffmpeg: --ffmpeg folder, else the one on PATH. render.js reads D360_FFMPEG / D360_FFPROBE.
     const exe_suffix = if (builtin.os.tag == .windows) ".exe" else "";
     const ffmpeg = if (opts.ffmpeg_dir) |d| try std.fs.path.join(arena, &.{ d, "ffmpeg" ++ exe_suffix }) else "ffmpeg";
@@ -116,6 +145,12 @@ pub fn main(init: std.process.Init) !void {
         fail("ffprobe was not found ({s}). It comes with ffmpeg; pass --ffmpeg <folder> if it is elsewhere.", .{ffprobe});
     try env.put("D360_FFMPEG", ffmpeg);
     try env.put("D360_FFPROBE", ffprobe);
+    // render.js also calls `ffmpeg` by name in places: the chosen folder goes first on PATH.
+    if (opts.ffmpeg_dir) |d| {
+        const sep = if (builtin.os.tag == .windows) ";" else ":";
+        const old = env.get("PATH") orelse "";
+        try env.put("PATH", try std.mem.concat(arena, u8, &.{ d, if (old.len > 0) sep else "", old }));
+    }
 
     const render_js = (try findRenderJs(arena, io, opts.worker)) orelse
         fail("worker/render.js was not found. Pass --worker <path to render.js> (it is in kneoio/direct360-helper).", .{});
@@ -169,6 +204,9 @@ pub fn main(init: std.process.Init) !void {
     });
     if (!info.overlay) log.say(io, "warning: this ffmpeg has no libass (`ass` filter); renders with the info overlay will fail", .{});
     if (!info.gpmf) log.say(io, "warning: gpmf2json is missing; GoPro telemetry will fail (build it in worker/gpmf)", .{});
+    if (machine.output(arena, io, &.{ "aria2c", "--version" }) == null)
+        log.say(io, "note: aria2c is not installed; sources download over one connection, which is slower (Ubuntu: sudo apt install aria2)", .{});
+    if (opts.log_file) if (log_path) |p| log.say(io, "log file: {s}", .{p});
 
     var table: jobs.Table = .{};
     var active = std.atomic.Value(u32).init(0);
@@ -200,6 +238,13 @@ test "command line: pair with a code, options with values" {
     try std.testing.expect(o.verbose);
     try std.testing.expectError(error.MissingValue, parseArgs(&.{ "agent", "pair" }));
     try std.testing.expectError(error.UnknownArgument, parseArgs(&.{ "agent", "fly" }));
+    try std.testing.expect(!(try parseArgs(&.{ "agent", "--no-log" })).log_file);
+    try std.testing.expectEqual(.log, (try parseArgs(&.{ "agent", "log" })).command);
+}
+
+test "the log command shows the last lines" {
+    try std.testing.expectEqualStrings("c\nd\n", lastLines("a\nb\nc\nd\n", 2));
+    try std.testing.expectEqualStrings("a\nb\n", lastLines("a\nb\n", 5));
 }
 
 test {

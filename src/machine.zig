@@ -87,6 +87,15 @@ pub fn hasAssFilter(text: []const u8) bool {
     return false;
 }
 
+/// System name and kernel release, as the Node helper sends them ("Linux 6.8.0"); just the system on Windows.
+fn osName(arena: std.mem.Allocator) []const u8 {
+    if (builtin.os.tag == .windows) return "Windows";
+    const u = std.posix.uname();
+    const sys = std.mem.sliceTo(&u.sysname, 0);
+    const rel = std.mem.sliceTo(&u.release, 0);
+    return std.fmt.allocPrint(arena, "{s} {s}", .{ sys, rel }) catch sys;
+}
+
 /// The computer's name, as the profile shows it to tell computers apart.
 fn hostName(arena: std.mem.Allocator) []const u8 {
     if (builtin.os.tag == .windows) return "";
@@ -139,7 +148,7 @@ pub fn collect(arena: std.mem.Allocator, io: Io, tools: Tools, gpu_stitch: []con
     const filters_out = output(arena, io, &.{ tools.ffmpeg, "-hide_banner", "-filters" }) orelse "";
     return .{
         .host = hostName(arena),
-        .os = @tagName(builtin.os.tag),
+        .os = osName(arena),
         .arch = @tagName(builtin.cpu.arch),
         .cpu = cpuModel(arena, io),
         .cpuThreads = @intCast(std.Thread.getCpuCount() catch 1),
