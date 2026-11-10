@@ -1,12 +1,16 @@
 name: Build
 
-# Unit tests on Linux, then the agent cross-compiled for every system from one runner. The builds are kept as
-# workflow artifacts; releases come later.
+# Unit tests on Linux, the agent cross-compiled for every system, and the Windows package (agent, Node, ffmpeg and
+# the direct360-helper job pipeline) staged on Linux and smoke-tested on Windows. Everything is kept as workflow
+# artifacts; publishing a release is the separate Release workflow.
 on:
   push:
     branches: [master]
   pull_request:
   workflow_dispatch:
+
+env:
+  HELPER_REF: v2.0.4
 
 jobs:
   build:
@@ -26,3 +30,49 @@ jobs:
         with:
           name: direct360-agent
           path: out/
+
+  stage-windows:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: kneoio/direct360-helper
+          ref: ${{ env.HELPER_REF }}
+          path: helper
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: zig build test
+      - run: zig build -Dtarget=x86_64-windows -Doptimize=ReleaseSmall
+      - run: node build/stage.mjs --target windows-x64 --helper helper --agent zig-out/bin/direct360-agent.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: dist/*.zip
+
+  smoke-windows:
+    needs: stage-windows
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-x64
+          path: dist
+      - name: Unzip the package
+        shell: pwsh
+        run: Expand-Archive -Path (Get-ChildItem dist\*.zip).FullName -DestinationPath pkg
+      - name: Smoke test
+        shell: pwsh
+        env:
+          D360_SMOKE_AGENT: pkg\direct360-agent.exe
+        run: |
+          pkg\direct360-agent.exe info
+          node --test test/smoke.test.mjs
