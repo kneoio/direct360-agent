@@ -31,7 +31,7 @@ const Options = struct {
     server: ?[]const u8 = null,
     ffmpeg_dir: ?[]const u8 = null,
     worker: ?[]const u8 = null,
-    node: []const u8 = "node",
+    node: ?[]const u8 = null,
     verbose: bool = false,
     log_file: bool = true,
 };
@@ -135,10 +135,18 @@ pub fn main(init: std.process.Init) !void {
     }
     if (opts.log_file) if (log_path) |p| log.openFile(io, p);
 
-    // ffmpeg: --ffmpeg folder, else the one on PATH. render.js reads D360_FFMPEG / D360_FFPROBE.
+    // A release bundles node/, ffmpeg/ and worker/ beside the agent; each is used when present, unless given.
     const exe_suffix = if (builtin.os.tag == .windows) ".exe" else "";
-    const ffmpeg = if (opts.ffmpeg_dir) |d| try std.fs.path.join(arena, &.{ d, "ffmpeg" ++ exe_suffix }) else "ffmpeg";
-    const ffprobe = if (opts.ffmpeg_dir) |d| try std.fs.path.join(arena, &.{ d, "ffprobe" ++ exe_suffix }) else "ffprobe";
+    const exe_dir = std.process.executableDirPathAlloc(io, arena) catch ".";
+    const bundled_ffmpeg = try std.fs.path.join(arena, &.{ exe_dir, "ffmpeg" });
+    const bundled_node = try std.fs.path.join(arena, &.{ exe_dir, "node", "node" ++ exe_suffix });
+    const ffmpeg_dir: ?[]const u8 = opts.ffmpeg_dir orelse
+        (if (exists(io, try std.fs.path.join(arena, &.{ bundled_ffmpeg, "ffmpeg" ++ exe_suffix }))) bundled_ffmpeg else null);
+    const node = opts.node orelse (if (exists(io, bundled_node)) bundled_node else "node");
+
+    // ffmpeg: that folder, else the one on PATH. render.js reads D360_FFMPEG / D360_FFPROBE.
+    const ffmpeg = if (ffmpeg_dir) |d| try std.fs.path.join(arena, &.{ d, "ffmpeg" ++ exe_suffix }) else "ffmpeg";
+    const ffprobe = if (ffmpeg_dir) |d| try std.fs.path.join(arena, &.{ d, "ffprobe" ++ exe_suffix }) else "ffprobe";
     if (machine.output(arena, io, &.{ ffmpeg, "-hide_banner", "-version" }) == null)
         fail("ffmpeg was not found ({s}). Install ffmpeg, or pass --ffmpeg <folder that has ffmpeg and ffprobe>.", .{ffmpeg});
     if (machine.output(arena, io, &.{ ffprobe, "-hide_banner", "-version" }) == null)
@@ -146,7 +154,7 @@ pub fn main(init: std.process.Init) !void {
     try env.put("D360_FFMPEG", ffmpeg);
     try env.put("D360_FFPROBE", ffprobe);
     // render.js also calls `ffmpeg` by name in places: the chosen folder goes first on PATH.
-    if (opts.ffmpeg_dir) |d| {
+    if (ffmpeg_dir) |d| {
         const sep = if (builtin.os.tag == .windows) ";" else ":";
         const old = env.get("PATH") orelse "";
         try env.put("PATH", try std.mem.concat(arena, u8, &.{ d, if (old.len > 0) sep else "", old }));
@@ -154,8 +162,8 @@ pub fn main(init: std.process.Init) !void {
 
     const render_js = (try findRenderJs(arena, io, opts.worker)) orelse
         fail("worker/render.js was not found. Pass --worker <path to render.js> (it is in kneoio/direct360-helper).", .{});
-    if (machine.output(arena, io, &.{ opts.node, "--version" }) == null)
-        fail("Node.js was not found ({s}); the worker pipeline still runs on Node. Install Node 20+ or pass --node <path>.", .{opts.node});
+    if (machine.output(arena, io, &.{ node, "--version" }) == null)
+        fail("Node.js was not found ({s}); the worker pipeline still runs on Node. Install Node 20+ or pass --node <path>.", .{node});
 
     // GoPro telemetry: GPMF2JSON, else worker/gpmf/gpmf2json beside render.js.
     var gpmf: ?[]const u8 = env.get("GPMF2JSON");
@@ -167,7 +175,7 @@ pub fn main(init: std.process.Init) !void {
         }
     }
     const gpu_stitch = env.get("D360_GPU_STITCH") orelse "gpu-stitch";
-    const info = try machine.collect(arena, io, .{ .ffmpeg = ffmpeg, .ffprobe = ffprobe, .gpmf = gpmf }, gpu_stitch);
+    const info = try machine.collect(arena, io, .{ .ffmpeg = ffmpeg, .ffprobe = ffprobe, .gpmf = gpmf }, gpu_stitch, env.get("COMPUTERNAME"));
 
     if (opts.command == .info) {
         const text = try std.json.Stringify.valueAlloc(arena, info, .{ .whitespace = .indent_2 });
@@ -216,7 +224,7 @@ pub fn main(init: std.process.Init) !void {
         .server = cfg.server,
         .token = cfg.token,
         .env = env,
-        .node = opts.node,
+        .node = node,
         .render_js = render_js,
         .gpu_stitch = info.gpuStitch,
         .verbose = opts.verbose,

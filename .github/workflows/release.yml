@@ -1,0 +1,84 @@
+name: Release
+
+# A new version in build.zig.zon on master (or a manual run) builds the Windows package on Linux (agent and gpmf2json
+# cross-compiled with Zig, the job pipeline from kneoio/direct360-helper v2.0.4, Node and ffmpeg downloaded), runs the
+# smoke test on Windows against the unzipped package (pair, a preview render, the outdated refusal), then publishes it
+# as the GitHub Release v<version>.
+on:
+  push:
+    branches: [master]
+    paths: [build.zig.zon]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  HELPER_REF: v2.0.4
+
+jobs:
+  stage-windows:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: kneoio/direct360-helper
+          ref: ${{ env.HELPER_REF }}
+          path: helper
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: zig build test
+      - run: zig build -Dtarget=x86_64-windows -Doptimize=ReleaseSmall
+      - run: node build/stage.mjs --target windows-x64 --helper helper --agent zig-out/bin/direct360-agent.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: dist/*.zip
+
+  smoke-windows:
+    needs: stage-windows
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-x64
+          path: dist
+      - name: Unzip the package
+        shell: pwsh
+        run: Expand-Archive -Path (Get-ChildItem dist\*.zip).FullName -DestinationPath pkg
+      - name: Smoke test
+        shell: pwsh
+        env:
+          D360_SMOKE_AGENT: pkg\direct360-agent.exe
+        run: |
+          pkg\direct360-agent.exe info
+          node --test test/smoke.test.mjs
+
+  release:
+    needs: smoke-windows
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-x64
+          path: dist
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(sed -n 's/.*\.version = "\(.*\)".*/\1/p' build.zig.zon)
+          if gh release view "v$version" >/dev/null 2>&1; then
+            gh release upload "v$version" dist/*.zip --clobber
+          else
+            gh release create "v$version" dist/*.zip --target "$GITHUB_SHA" --title "Direct360 agent $version" --notes-file build/release-notes.md
+          fi

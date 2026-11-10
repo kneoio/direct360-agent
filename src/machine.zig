@@ -9,7 +9,7 @@ const Io = std.Io;
 pub const version = "0.1.0";
 /// The helper protocol it speaks, sent as `info.version`: the server refuses helpers older than its
 /// HELPER_MIN_VERSION (direct360-server src/localWorkers.js) and only reads plain numbers ("2.0.3").
-pub const protocol_version = "2.0.3";
+pub const protocol_version = "2.0.4";
 
 pub const Info = struct {
     version: []const u8 = protocol_version,
@@ -142,12 +142,13 @@ pub fn gb(bytes: u64) f64 {
     return @as(f64, @floatFromInt(bytes)) / (1024.0 * 1024.0 * 1024.0);
 }
 
-pub fn collect(arena: std.mem.Allocator, io: Io, tools: Tools, gpu_stitch: []const u8) !Info {
+/// `windows_name` is COMPUTERNAME, the computer's name on Windows.
+pub fn collect(arena: std.mem.Allocator, io: Io, tools: Tools, gpu_stitch: []const u8, windows_name: ?[]const u8) !Info {
     const ffmpeg_out = output(arena, io, &.{ tools.ffmpeg, "-hide_banner", "-version" }) orelse "";
     const encoders_out = output(arena, io, &.{ tools.ffmpeg, "-hide_banner", "-encoders" }) orelse "";
     const filters_out = output(arena, io, &.{ tools.ffmpeg, "-hide_banner", "-filters" }) orelse "";
     return .{
-        .host = hostName(arena),
+        .host = if (builtin.os.tag == .windows) windows_name orelse "" else hostName(arena),
         .os = osName(arena),
         .arch = @tagName(builtin.cpu.arch),
         .cpu = cpuModel(arena, io),
