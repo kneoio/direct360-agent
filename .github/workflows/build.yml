@@ -11,9 +11,8 @@ on:
   workflow_dispatch:
 
 env:
-  # direct360-helper's job pipeline at the commit direct360-server depends on (per-entry camera settings, after the
-  # Windows pan fix).
-  HELPER_REF: 11261bdc5326e3bdc0d6faa9492b6b007a051e4b
+  # direct360-helper's job pipeline at the commit direct360-server depends on (transitions between pictures).
+  HELPER_REF: 440925d7f3ef27fd8b7655e915d45260e3a66fb9
 
 jobs:
   build:

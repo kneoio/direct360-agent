@@ -1,6 +1,6 @@
 .{
     .name = .direct360_agent,
-    .version = "0.1.3",
+    .version = "0.1.4",
     .fingerprint = 0x80db861ff169dfe7,
     .minimum_zig_version = "0.17.1",
     .dependencies = .{},
