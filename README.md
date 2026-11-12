@@ -17,7 +17,7 @@ bundled; porting it is the next stage. Not yet: self-update, a macOS package.
 
 ## Windows
 
-`Direct360AgentSetup-<version>.exe` installs it for the current user (no administrator rights) and starts it. The
+`Direct360AgentSetup.exe` installs it for the current user (no administrator rights) and starts it. The
 agent lives in the tray (the Direct360 lens mark; it pulses while a job runs). When it is not connected yet it opens
 Direct360 → Profile → Processing in the browser; confirm there and it connects by itself. Its menu: the status and the
 running jobs, Connect to Direct360…, Open Direct360, Start when the computer starts, Show log, Quit.
@@ -28,8 +28,8 @@ preview render, the outdated refusal, the tray app taking a job) and the install
 
 ## Linux
 
-`direct360-agent_<version>_amd64.deb` (Ubuntu 20.04 or newer, Debian 11 or newer):
-`sudo apt install ./direct360-agent_<version>_amd64.deb`. It installs into `/opt/direct360-agent`, with
+`direct360-agent_amd64.deb` (Ubuntu 20.04 or newer, Debian 11 or newer):
+`sudo apt install ./direct360-agent_amd64.deb`. It installs into `/opt/direct360-agent`, with
 `direct360-agent` on the PATH and Direct360 Agent in the applications. Started from there it lives in the top bar
 (an AppIndicator; apt installs `libayatana-appindicator3-1` with it), with the same menu and the same browser connect
 as on Windows; "Start when the computer starts" adds `~/.config/autostart/direct360-agent.desktop`. Without a desktop,

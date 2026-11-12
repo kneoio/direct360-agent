@@ -164,6 +164,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(sed -n 's/.*\.version = "\(.*\)".*/\1/p' build.zig.zon)
+          # Names without the version, so Profile → Processing links to releases/latest/download/<name>.
+          mv dist/Direct360AgentSetup-*.exe dist/Direct360AgentSetup.exe
+          mv dist/direct360-agent_*_amd64.deb dist/direct360-agent_amd64.deb
           if gh release view "v$version" >/dev/null 2>&1; then
             gh release upload "v$version" dist/*.exe dist/*.deb --clobber
           else
