@@ -1,9 +1,11 @@
 name: Release
 
 # A new version in build.zig.zon on master (or a manual run) builds the Windows package on Linux (agent and gpmf2json
-# cross-compiled with Zig, the job pipeline from kneoio/direct360-helper v2.0.4, Node and ffmpeg downloaded), runs the
-# smoke test on Windows against it (pair, a preview render, the outdated refusal, the tray app), builds the installer
-# and checks it installs, runs and uninstalls, then publishes the installer as the GitHub Release v<version>.
+# cross-compiled with Zig, the job pipeline from kneoio/direct360-helper, Node and ffmpeg downloaded), runs the smoke
+# test on Windows against it (pair, a preview render, the outdated refusal, the tray app), builds the installer and
+# checks it installs, runs and uninstalls; builds the Linux .deb the same way, installs it on Ubuntu and runs the
+# smoke test there (the tray on a virtual display); then publishes the installer and the .deb as the GitHub Release
+# v<version>.
 on:
   push:
     branches: [master]
@@ -14,8 +16,9 @@ permissions:
   contents: write
 
 env:
-  # direct360-helper 2.0.4's job pipeline with the Windows pan fix (13cf0d5).
-  HELPER_REF: 13cf0d55e5f0b541252dfdd40f5829fe78017337
+  # direct360-helper's job pipeline at the commit direct360-server depends on (per-entry camera settings, after the
+  # Windows pan fix).
+  HELPER_REF: 11261bdc5326e3bdc0d6faa9492b6b007a051e4b
 
 jobs:
   stage-windows:
@@ -88,8 +91,63 @@ jobs:
           name: windows-installer
           path: dist/Direct360AgentSetup-*.exe
 
+  stage-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: kneoio/direct360-helper
+          ref: ${{ env.HELPER_REF }}
+          path: helper
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: zig build test
+      - run: zig build -Dtarget=x86_64-linux-gnu.2.31 -Doptimize=ReleaseSmall
+      - run: node build/stage.mjs --target linux-x64 --helper helper --agent zig-out/bin/direct360-agent
+      - name: Build the .deb
+        run: build/linux/deb.sh dist/linux-x64 "$(sed -n 's/.*\.version = "\(.*\)".*/\1/p' build.zig.zon)" dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-deb
+          path: dist/*.deb
+          compression-level: 0
+
+  smoke-linux:
+    needs: stage-linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-deb
+          path: dist
+      - name: Install the .deb
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y xvfb ./dist/direct360-agent_*.deb
+          test -x /opt/direct360-agent/direct360-agent
+          direct360-agent info 2> info.txt
+          cat info.txt
+          grep -q '"ffmpeg"' info.txt
+      - name: Smoke test (the tray on a virtual display)
+        env:
+          D360_SMOKE_AGENT: /opt/direct360-agent/direct360-agent
+        run: xvfb-run -a dbus-run-session -- node --test test/smoke.test.mjs
+      - name: Uninstall
+        run: |
+          sudo apt-get remove -y direct360-agent
+          test ! -e /opt/direct360-agent/direct360-agent
+
   release:
-    needs: smoke-windows
+    needs: [smoke-windows, smoke-linux]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -97,13 +155,17 @@ jobs:
         with:
           name: windows-installer
           path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-deb
+          path: dist
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(sed -n 's/.*\.version = "\(.*\)".*/\1/p' build.zig.zon)
           if gh release view "v$version" >/dev/null 2>&1; then
-            gh release upload "v$version" dist/*.exe --clobber
+            gh release upload "v$version" dist/*.exe dist/*.deb --clobber
           else
-            gh release create "v$version" dist/*.exe --target "$GITHUB_SHA" --title "Direct360 agent $version" --notes-file build/release-notes.md
+            gh release create "v$version" dist/*.exe dist/*.deb --target "$GITHUB_SHA" --title "Direct360 agent $version" --notes-file build/release-notes.md
           fi

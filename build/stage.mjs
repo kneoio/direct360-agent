@@ -10,9 +10,9 @@
  *   node/                      Node.js, which still runs the pipeline
  *   ffmpeg/                    static ffmpeg/ffprobe with libass (GPL; LICENSE.txt and SOURCE.txt beside them)
  *
- *   node build/stage.mjs --target windows-x64 --helper <direct360-helper checkout> --agent <agent binary>
+ *   node build/stage.mjs --target windows-x64|linux-x64 --helper <direct360-helper checkout> --agent <agent binary>
  *
- * Writes dist/<target>/ and dist/direct360-agent-<version>-<target>.zip.
+ * Writes dist/<target>/ and dist/direct360-agent-<version>-<target>.zip (Windows) or .tar.gz (Linux).
  */
 import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
@@ -32,14 +32,26 @@ const HELPER = path.resolve(arg('helper'));
 const AGENT = path.resolve(arg('agent'));
 const VERSION = fs.readFileSync(path.join(ROOT, 'build.zig.zon'), 'utf8').match(/\.version = "([^"]+)"/)[1];
 
-/** Per target: the Zig target for gpmf2json, the executable suffix, the Node build and the ffmpeg build. */
+/** Per target: the Zig target for gpmf2json, the executable suffix, the Node build (and where node is in it), the
+ * ffmpeg build and the package's archive type. */
 const TARGETS = {
   'windows-x64': {
     zig: 'x86_64-windows-gnu',
     exe: '.exe',
     node: 'win-x64.zip',
+    nodeBin: 'node.exe',
     ffmpeg: 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-gpl-8.1.zip',
     ffmpegSource: 'FFmpeg source: https://github.com/FFmpeg/FFmpeg (release/8.1). Build scripts: https://github.com/BtbN/FFmpeg-Builds',
+    archive: 'zip',
+  },
+  'linux-x64': {
+    zig: 'x86_64-linux-musl',
+    exe: '',
+    node: 'linux-x64.tar.xz',
+    nodeBin: 'bin/node',
+    ffmpeg: 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz',
+    ffmpegSource: 'FFmpeg source: https://github.com/FFmpeg/FFmpeg (release/8.1). Build scripts: https://github.com/BtbN/FFmpeg-Builds',
+    archive: 'tar.gz',
   },
 };
 const T = TARGETS[TARGET];
@@ -58,6 +70,13 @@ async function download(url, dest) {
   if (!res.ok) throw new Error(`download failed: ${res.status} ${url}`);
   fs.writeFileSync(dest, Buffer.from(await res.arrayBuffer()));
   return dest;
+}
+
+/** Unpacks a .zip or .tar.xz download into a new folder `dest`. */
+function unpack(archive, dest) {
+  fs.mkdirSync(dest);
+  if (archive.endsWith('.zip')) run('unzip', ['-q', archive, '-d', dest]);
+  else run('tar', ['-xJf', archive, '-C', dest]);
 }
 
 function findFile(dir, name) {
@@ -92,7 +111,7 @@ function buildGpmf() {
     'cc', '-target', T.zig, '-O2', '-D_FILE_OFFSET_BITS=64', `-I${parser}`, `-I${path.join(parser, 'demo')}`, '-o', out,
     path.join(src, 'gpmf2json.c'), path.join(parser, 'GPMF_parser.c'), path.join(parser, 'demo', 'GPMF_mp4reader.c'), '-lm',
   ]);
-  fs.rmSync(out.replace(/\.exe$/, '.pdb'), { force: true });
+  if (T.exe) fs.rmSync(out.replace(/\.exe$/, '.pdb'), { force: true });
   for (const name of ['LICENSE.txt', 'LICENSE-APACHE', 'LICENSE-MIT']) copyFromHelper(path.join('worker', 'gpmf', 'third_party', 'gpmf-parser', name));
 }
 
@@ -107,20 +126,19 @@ async function fetchNode(work) {
   const got = crypto.createHash('sha256').update(fs.readFileSync(archive)).digest('hex');
   if (got !== sha) throw new Error(`${name}: checksum ${got} is not ${sha}`);
   const unpacked = path.join(work, 'node');
-  fs.mkdirSync(unpacked);
-  run('unzip', ['-q', archive, '-d', unpacked]);
+  unpack(archive, unpacked);
+  const top = path.join(unpacked, name.replace(/\.(zip|tar\.xz)$/, ''));
   const dir = path.join(OUT, 'node');
   fs.mkdirSync(dir, { recursive: true });
-  fs.copyFileSync(findFile(unpacked, `node${T.exe}`), path.join(dir, `node${T.exe}`));
-  fs.copyFileSync(findFile(unpacked, 'LICENSE'), path.join(dir, 'LICENSE'));
+  fs.copyFileSync(path.join(top, T.nodeBin), path.join(dir, `node${T.exe}`));
+  fs.copyFileSync(path.join(top, 'LICENSE'), path.join(dir, 'LICENSE'));
   console.log(`node: ${name}`);
 }
 
 async function fetchFfmpeg(work) {
-  const archive = await download(T.ffmpeg, path.join(work, 'ffmpeg.zip'));
+  const archive = await download(T.ffmpeg, path.join(work, path.basename(T.ffmpeg)));
   const unpacked = path.join(work, 'ffmpeg');
-  fs.mkdirSync(unpacked);
-  run('unzip', ['-q', archive, '-d', unpacked]);
+  unpack(archive, unpacked);
   const dir = path.join(OUT, 'ffmpeg');
   fs.mkdirSync(dir, { recursive: true });
   for (const name of [`ffmpeg${T.exe}`, `ffprobe${T.exe}`]) {
@@ -161,7 +179,8 @@ try {
 } finally {
   fs.rmSync(work, { recursive: true, force: true });
 }
-const zip = path.join(ROOT, 'dist', `direct360-agent-${VERSION}-${TARGET}.zip`);
-fs.rmSync(zip, { force: true });
-run('zip', ['-qr', zip, '.'], { cwd: OUT });
-console.log(`staged ${OUT}\n${zip}`);
+const packed = path.join(ROOT, 'dist', `direct360-agent-${VERSION}-${TARGET}.${T.archive}`);
+fs.rmSync(packed, { force: true });
+if (T.archive === 'zip') run('zip', ['-qr', packed, '.'], { cwd: OUT });
+else run('tar', ['-czf', packed, '--owner=0', '--group=0', '--numeric-owner', '-C', OUT, '.']);
+console.log(`staged ${OUT}\n${packed}`);

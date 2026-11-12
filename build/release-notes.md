@@ -1,7 +1,9 @@
 Runs your Direct360 heavy work (stitch, camera grid, preview copy, telemetry, renders) on your own computer.
 
-**Windows:** download `Direct360AgentSetup-<version>.exe` and run it. Direct360 Agent starts in the tray and opens Direct360 in your browser: confirm there and it is connected. Right-click the tray icon for its menu (status, Connect to Direct360…, Open Direct360, Start when the computer starts, Show log, Quit).
+**Windows:** download `Direct360AgentSetup-<version>.exe` and run it. Direct360 Agent starts in the tray and opens Direct360 in your browser: confirm there and it is connected. Right-click the tray icon for its menu (status, Connect to Direct360…, Open Direct360, Start when the computer starts, Show log, Quit). The build is not code-signed yet, so Windows may warn about an unknown publisher ("More info" → "Run anyway").
 
-Nothing else to install: Node, ffmpeg and the job pipeline (direct360-helper 2.0.4, with pans fixed on Windows) are inside. The build is not code-signed yet, so Windows may warn about an unknown publisher ("More info" → "Run anyway").
+**Linux (Ubuntu 20.04 or newer, 64-bit):** download `direct360-agent_<version>_amd64.deb` and install it: `sudo apt install ./direct360-agent_<version>_amd64.deb`. Start Direct360 Agent from your applications; it appears in the top bar and opens Direct360 in your browser to connect. The same menu is on its icon. On a computer without a desktop, run `direct360-agent --headless` in a terminal.
 
-ffmpeg/ffprobe are GPL software (`ffmpeg\LICENSE.txt` in the install folder, source in `ffmpeg\SOURCE.txt`); see `THIRD-PARTY.txt` there for everything bundled.
+Nothing else to install: Node, ffmpeg and the job pipeline (direct360-helper, as the Direct360 server runs it) are inside.
+
+ffmpeg/ffprobe are GPL software (`ffmpeg/LICENSE.txt` in the install folder, source in `ffmpeg/SOURCE.txt`); see `THIRD-PARTY.txt` there for everything bundled.

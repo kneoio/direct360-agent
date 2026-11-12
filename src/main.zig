@@ -2,8 +2,8 @@
 //! renders) on their own computer instead of the cloud. It takes the same jobs a cloud worker takes from the
 //! Direct360 server and runs them with the worker pipeline (worker/render.js) and the computer's own ffmpeg.
 //!
-//! On Windows, started without a command, it is the tray app: an icon with a menu, connecting in the browser, no
-//! console window. Elsewhere, or with --headless, it runs in the terminal:
+//! On Windows, and on Linux with a desktop, started without a command it is the tray app: an icon with a menu,
+//! connecting in the browser (on Windows no console window). Elsewhere, or with --headless, it runs in the terminal:
 //!
 //!   direct360-agent pair ABCD-EFGH     pair with the code from Profile → Processing
 //!   direct360-agent connect            pair in the browser instead
@@ -26,7 +26,8 @@ const machine = @import("machine.zig");
 const platform = @import("platform.zig");
 const sess = @import("session.zig");
 const connect = @import("connect.zig");
-const tray_windows = @import("tray_windows.zig");
+/// The tray of this system (macOS has none yet: there the agent always runs in the terminal).
+const tray_ui = if (builtin.os.tag == .windows) @import("tray_windows.zig") else @import("tray_linux.zig");
 
 const usage =
     \\Usage: direct360-agent [pair <code> | connect | info | log] [--server <url>] [--ffmpeg <folder>] [--worker <render.js>] [--node <node>] [--verbose] [--headless] [--no-log]
@@ -133,14 +134,16 @@ pub fn main(init: std.process.Init) !void {
     const env = init.environ_map;
     const args = try init.minimal.args.toSlice(arena);
     const opts = parseArgs(args) catch fail("{s}", .{usage});
-    const tray_app = builtin.os.tag == .windows and opts.command == .run and !opts.headless;
+    // Linux: the tray needs a desktop session (an X11 or Wayland display).
+    const desktop = builtin.os.tag == .windows or env.get("DISPLAY") != null or env.get("WAYLAND_DISPLAY") != null;
+    const tray_app = (builtin.os.tag == .windows or builtin.os.tag == .linux) and opts.command == .run and !opts.headless and desktop;
 
     if (opts.command == .version) {
         std.debug.print("direct360-agent {s}\n", .{machine.version});
         return;
     }
     if (tray_app and !platform.firstInstance()) {
-        tray_windows.pokeRunningCopy();
+        tray_ui.pokeRunningCopy();
         return;
     }
 
@@ -268,8 +271,8 @@ pub fn main(init: std.process.Init) !void {
         .active = &active,
     };
 
+    platform.endChildrenWithAgent();
     if (tray_app) {
-        platform.endChildrenWithAgent();
         if (missing) |m| {
             log.say(io, "cannot run jobs: {s}", .{m});
             session.setStatus(io, .stopped, m);
@@ -278,17 +281,26 @@ pub fn main(init: std.process.Init) !void {
             loop.detach();
         }
         if (cfg.token.len == 0) connector.start();
-        var t: tray_windows.Tray = .{
+        var t: tray_ui.Tray = .{
             .gpa = gpa,
             .io = io,
             .session = &session,
             .table = &table,
             .connector = &connector,
             .log_path = if (opts.log_file) log_path else null,
-            .exe_path = std.process.executablePathAlloc(io, arena) catch "direct360-agent.exe",
+            .exe_path = std.process.executablePathAlloc(io, arena) catch "direct360-agent" ++ exe_suffix,
             .show_log = true,
         };
-        tray_windows.run(&t) catch |err| fail("The tray icon could not be shown: {s}", .{@errorName(err)});
+        if (builtin.os.tag == .linux) {
+            t.home = home orelse "";
+            t.cache_home = env.get("XDG_CACHE_HOME");
+            t.config_home = env.get("XDG_CONFIG_HOME");
+        }
+        tray_ui.run(&t) catch |err| {
+            log.say(io, "the tray icon could not be shown: {s}", .{@errorName(err)});
+            if (builtin.os.tag == .linux) fail("The tray icon could not be shown ({s}). Install it with: sudo apt install libayatana-appindicator3-1\nor run the agent in the terminal: direct360-agent --headless", .{@errorName(err)});
+            fail("The tray icon could not be shown: {s}", .{@errorName(err)});
+        };
         std.process.exit(0);
     }
 

@@ -11,9 +11,9 @@ process tree when the server cancels it, and reports the result. ffmpeg does the
 
 ## Status
 
-Windows: a tray app with an installer, connecting in the browser like direct360-helper 2.0.4. Jobs still run the job
-pipeline of `kneoio/direct360-helper` 2.0.4 (`worker/render.js`) on Node, bundled; porting it is the next stage. Not
-yet: self-update, macOS and Linux packages.
+Windows and Linux (Ubuntu): a tray app with an installer (`.exe`, `.deb`), connecting in the browser like
+direct360-helper 2.0.4. Jobs still run the job pipeline of `kneoio/direct360-helper` (`worker/render.js`) on Node,
+bundled; porting it is the next stage. Not yet: self-update, a macOS package.
 
 ## Windows
 
@@ -26,6 +26,16 @@ Download it from [Releases](https://github.com/kneoio/direct360-agent/releases/l
 Node, ffmpeg (GPL) and the job pipeline. Quitting it also stops a running render. Each build is smoke-tested on Windows before release (`test/smoke.test.mjs`: pair, a
 preview render, the outdated refusal, the tray app taking a job) and the installer is installed, run and uninstalled.
 
+## Linux
+
+`direct360-agent_<version>_amd64.deb` (Ubuntu 20.04 or newer, Debian 11 or newer):
+`sudo apt install ./direct360-agent_<version>_amd64.deb`. It installs into `/opt/direct360-agent`, with
+`direct360-agent` on the PATH and Direct360 Agent in the applications. Started from there it lives in the top bar
+(an AppIndicator; apt installs `libayatana-appindicator3-1` with it), with the same menu and the same browser connect
+as on Windows; "Start when the computer starts" adds `~/.config/autostart/direct360-agent.desktop`. Without a desktop,
+or with `--headless`, it runs in the terminal. Quitting it (or Ctrl+C) also stops a running render. Each build is
+installed on Ubuntu and smoke-tested there, the tray on a virtual display.
+
 ## Run from source
 
 Needs ffmpeg/ffprobe, Node 20+ and a checkout of `kneoio/direct360-helper` (for `worker/render.js`).
@@ -37,8 +47,8 @@ direct360-agent info --worker ../direct360-helper/worker/render.js             #
 direct360-agent log                                                            # the last lines of the log
 ```
 
-On Windows, `--headless` runs it in the terminal instead of the tray; `direct360-agent connect` pairs in the browser
-from the terminal.
+On Windows and on a Linux desktop, `--headless` runs it in the terminal instead of the tray; `direct360-agent connect`
+pairs in the browser from the terminal.
 
 Options: `--server <url>` (default `https://direct360.app/api`), `--ffmpeg <folder with ffmpeg and ffprobe>`,
 `--worker <path to render.js>`, `--node <path>`, `--verbose`, `--no-log`. Beside a packaged agent, `node/`, `ffmpeg/`
@@ -53,7 +63,11 @@ Zig 0.17.1.
 zig build                     # zig-out/bin/direct360-agent
 zig build test                # unit tests
 zig build -Dtarget=x86_64-windows -Doptimize=ReleaseSmall
+zig build -Dtarget=x86_64-linux-gnu.2.31 -Doptimize=ReleaseSmall
 ```
+
+Packages: `node build/stage.mjs --target windows-x64|linux-x64 --helper <direct360-helper checkout> --agent <binary>`,
+then `build/windows/installer.iss` (Inno Setup) or `build/linux/deb.sh dist/linux-x64 <version> dist`.
 
 ## Licence
 

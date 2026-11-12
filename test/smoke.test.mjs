@@ -179,7 +179,10 @@ test('an outdated helper is refused and says to update', { timeout: 60000 }, asy
   }
 });
 
-test('Windows: the tray app comes up with its icon and takes a job', { skip: process.platform !== 'win32', timeout: 240000 }, async () => {
+/** The tray app runs on Windows, and on Linux in a desktop session (in CI a virtual X display). */
+const TRAY = process.platform === 'win32' || (process.platform === 'linux' && Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY));
+
+test('the tray app comes up with its icon and takes a job', { skip: !TRAY, timeout: 240000 }, async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'd360-tray-'));
   const clip = path.join(tmp, 'pano.mp4');
   const made = spawnSync(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-y',
@@ -198,6 +201,7 @@ test('Windows: the tray app comes up with its icon and takes a job', { skip: pro
   const logText = () => (fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf8') : '');
   try {
     await until(() => state.online, 30000, `online\n${out}\n${logText()}`);
+    await until(() => /tray icon ready/.test(logText()), 30000, `tray icon\n${out}\n${logText()}`);
     state.job = {
       id: 'j1',
       input: {
@@ -212,7 +216,8 @@ test('Windows: the tray app comes up with its icon and takes a job', { skip: pro
     assert.match(logText(), /tray icon ready/);
     assert.match(logText(), /render done/);
   } finally {
-    spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F']);
+    if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F']);
+    else child.kill('SIGTERM');
     server.closeAllConnections?.();
     await new Promise((r) => server.close(r));
     fs.rmSync(tmp, { recursive: true, force: true });

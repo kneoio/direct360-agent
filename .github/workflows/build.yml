@@ -1,8 +1,9 @@
 name: Build
 
-# Unit tests on Linux, the agent cross-compiled for every system, and the Windows package (agent, Node, ffmpeg and
-# the direct360-helper job pipeline) staged on Linux and smoke-tested on Windows. Everything is kept as workflow
-# artifacts; publishing a release is the separate Release workflow.
+# Unit tests on Linux, the agent cross-compiled for every system, the Windows package (agent, Node, ffmpeg and the
+# direct360-helper job pipeline) staged on Linux and smoke-tested on Windows, and the Linux .deb built, installed and
+# smoke-tested (the tray on a virtual display). Everything is kept as workflow artifacts; publishing a release is the
+# separate Release workflow.
 on:
   push:
     branches: [master]
@@ -10,8 +11,9 @@ on:
   workflow_dispatch:
 
 env:
-  # direct360-helper 2.0.4's job pipeline with the Windows pan fix (13cf0d5).
-  HELPER_REF: 13cf0d55e5f0b541252dfdd40f5829fe78017337
+  # direct360-helper's job pipeline at the commit direct360-server depends on (per-entry camera settings, after the
+  # Windows pan fix).
+  HELPER_REF: 11261bdc5326e3bdc0d6faa9492b6b007a051e4b
 
 jobs:
   build:
@@ -24,7 +26,7 @@ jobs:
       - run: zig build test --summary all
       - name: Cross-compile
         run: |
-          for t in x86_64-windows aarch64-macos x86_64-macos x86_64-linux aarch64-linux; do
+          for t in x86_64-windows aarch64-macos x86_64-macos x86_64-linux-gnu.2.31 aarch64-linux-gnu.2.31; do
             zig build -Dtarget=$t -Doptimize=ReleaseSmall --prefix out/$t
           done
       - uses: actions/upload-artifact@v4
@@ -101,3 +103,58 @@ jobs:
         with:
           name: windows-installer
           path: dist/Direct360AgentSetup-*.exe
+
+  stage-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: kneoio/direct360-helper
+          ref: ${{ env.HELPER_REF }}
+          path: helper
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: zig build test
+      - run: zig build -Dtarget=x86_64-linux-gnu.2.31 -Doptimize=ReleaseSmall
+      - run: node build/stage.mjs --target linux-x64 --helper helper --agent zig-out/bin/direct360-agent
+      - name: Build the .deb
+        run: build/linux/deb.sh dist/linux-x64 "$(sed -n 's/.*\.version = "\(.*\)".*/\1/p' build.zig.zon)" dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-deb
+          path: dist/*.deb
+          compression-level: 0
+
+  smoke-linux:
+    needs: stage-linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-deb
+          path: dist
+      - name: Install the .deb
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y xvfb ./dist/direct360-agent_*.deb
+          test -x /opt/direct360-agent/direct360-agent
+          direct360-agent info 2> info.txt
+          cat info.txt
+          grep -q '"ffmpeg"' info.txt
+      - name: Smoke test (the tray on a virtual display)
+        env:
+          D360_SMOKE_AGENT: /opt/direct360-agent/direct360-agent
+        run: xvfb-run -a dbus-run-session -- node --test test/smoke.test.mjs
+      - name: Uninstall
+        run: |
+          sudo apt-get remove -y direct360-agent
+          test ! -e /opt/direct360-agent/direct360-agent

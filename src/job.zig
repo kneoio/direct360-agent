@@ -23,6 +23,18 @@ pub const Ctx = struct {
 
 const progress_every_ms = 3000;
 
+/// The process group of each running job (POSIX; render.js's pid, 0 when the slot is free), for stopAll.
+var groups: [jobs.slots]std.atomic.Value(i32) = @splat(.init(0));
+
+/// Stops every running job's process tree at once, as the agent ends. Safe in a signal handler.
+pub fn stopAll() void {
+    if (builtin.os.tag == .windows) return;
+    for (&groups) |*g| {
+        const pid = g.load(.acquire);
+        if (pid > 0) std.posix.kill(-pid, .TERM) catch {};
+    }
+}
+
 /// render.js lines worth showing without --verbose: failures, stalls, retries and fallbacks.
 pub fn notable(line: []const u8) bool {
     const words = [_][]const u8{ "error", "fail", "stall", "retr", "fallback", "restart", "refused", "denied", "timed out", "timeout", "not found", "missing" };
@@ -237,6 +249,8 @@ fn runInner(ctx: *Ctx, id: []const u8, input_json: []const u8) !void {
         .create_no_window = true,
     });
     var shared: Shared = .{ .ctx = ctx, .slot = slot, .id = id, .pid = child.id };
+    if (builtin.os.tag != .windows) groups[slot].store(child.id.?, .release);
+    defer if (builtin.os.tag != .windows) groups[slot].store(0, .release);
 
     {
         var wbuf: [8192]u8 = undefined;

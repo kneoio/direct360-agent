@@ -5,7 +5,10 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Io = std.Io;
 const windows = std.os.windows;
+const linux = std.os.linux;
+const jobs_run = @import("job.zig");
 const is_windows = builtin.os.tag == .windows;
+const is_linux = builtin.os.tag == .linux;
 
 extern "shell32" fn ShellExecuteW(hwnd: ?windows.HWND, op: ?[*:0]const u16, file: [*:0]const u16, params: ?[*:0]const u16, dir: ?[*:0]const u16, show: i32) callconv(.winapi) isize;
 extern "kernel32" fn AttachConsole(pid: u32) callconv(.winapi) i32;
@@ -52,12 +55,57 @@ pub fn attachParentConsole() void {
     _ = SetStdHandle(STD_ERROR_HANDLE, con);
 }
 
-/// False when another copy of the agent already runs (Windows; elsewhere always true).
+/// Linux: the socket the first copy listens on (`@direct360-agent-<uid>`, abstract); a second copy connects to it.
+pub var instance_socket: ?i32 = null;
+
+fn instanceAddress() linux.sockaddr.un {
+    var addr: linux.sockaddr.un = .{ .path = @splat(0) };
+    _ = std.fmt.bufPrint(addr.path[1..], "direct360-agent-{d}", .{linux.getuid()}) catch {};
+    return addr;
+}
+
+fn instanceAddressLen(addr: *const linux.sockaddr.un) linux.socklen_t {
+    const name_len = std.mem.indexOfScalar(u8, addr.path[1..], 0) orelse addr.path.len - 1;
+    return @intCast(@offsetOf(linux.sockaddr.un, "path") + 1 + name_len);
+}
+
+/// False when another copy of the agent already runs (Windows and Linux; elsewhere always true).
 pub fn firstInstance() bool {
+    if (is_linux) {
+        const rc = linux.socket(linux.AF.UNIX, linux.SOCK.STREAM | linux.SOCK.CLOEXEC, 0);
+        if (linux.errno(rc) != .SUCCESS) return true;
+        const fd: i32 = @intCast(rc);
+        const addr = instanceAddress();
+        if (linux.errno(linux.bind(fd, @ptrCast(&addr), instanceAddressLen(&addr))) != .SUCCESS) {
+            _ = linux.close(fd);
+            return false;
+        }
+        _ = linux.listen(fd, 4);
+        instance_socket = fd;
+        return true;
+    }
     if (!is_windows) return true;
     _ = CreateMutexW(null, 1, L("Local\\Direct360Agent")) orelse return true;
     const ERROR_ALREADY_EXISTS = 183;
     return GetLastError() != ERROR_ALREADY_EXISTS;
+}
+
+/// Linux: tells the copy that already runs that another one was started (it shows the connect page if not connected).
+pub fn pokeRunningCopy() void {
+    if (!is_linux) return;
+    const rc = linux.socket(linux.AF.UNIX, linux.SOCK.STREAM | linux.SOCK.CLOEXEC, 0);
+    if (linux.errno(rc) != .SUCCESS) return;
+    const fd: i32 = @intCast(rc);
+    defer _ = linux.close(fd);
+    const addr = instanceAddress();
+    _ = linux.connect(fd, @ptrCast(&addr), instanceAddressLen(&addr));
+}
+
+/// Linux: a poke from a second copy is waiting on `instance_socket`; takes it and returns.
+pub fn takePoke() void {
+    const fd = instance_socket orelse return;
+    const rc = linux.accept4(fd, null, null, linux.SOCK.CLOEXEC);
+    if (linux.errno(rc) == .SUCCESS) _ = linux.close(@intCast(rc));
 }
 
 const IoCounters = extern struct { r: u64, w: u64, o: u64, rb: u64, wb: u64, ob: u64 };
@@ -81,9 +129,20 @@ const ExtendedLimits = extern struct {
     peak_job_memory: usize,
 };
 
-/// Windows: every process the agent starts (render.js, ffmpeg) ends when the agent ends, even when it is closed
-/// from the tray in the middle of a render.
+fn endJobsAndExit(_: std.posix.SIG) callconv(.c) void {
+    jobs_run.stopAll();
+    std.c._exit(0);
+}
+
+/// Every process the agent starts (render.js, ffmpeg) ends when the agent ends, even when it is closed from the tray
+/// in the middle of a render. Windows: a job object. Linux: each job runs in its own process group, which is stopped
+/// when the agent is told to end (Quit, Ctrl+C, logging out).
 pub fn endChildrenWithAgent() void {
+    if (is_linux) {
+        const act: std.posix.Sigaction = .{ .handler = .{ .handler = endJobsAndExit }, .mask = std.posix.sigemptyset(), .flags = 0 };
+        for ([_]std.posix.SIG{ .TERM, .INT, .HUP }) |sig| std.posix.sigaction(sig, &act, null);
+        return;
+    }
     if (!is_windows) return;
     const job = CreateJobObjectW(null, null) orelse return;
     var limits = std.mem.zeroes(ExtendedLimits);
