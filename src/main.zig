@@ -251,8 +251,7 @@ pub fn main(init: std.process.Init) !void {
     });
     if (!info.overlay) log.say(io, "warning: this ffmpeg has no libass (`ass` filter); renders with the info overlay will fail", .{});
     if (!info.gpmf) log.say(io, "warning: gpmf2json is missing; GoPro telemetry will fail (build it in worker/gpmf)", .{});
-    if (machine.output(arena, io, &.{ "aria2c", "--version" }) == null)
-        log.say(io, "note: aria2c is not installed; sources download over one connection, which is slower (Ubuntu: sudo apt install aria2)", .{});
+    if (!info.aria2c) log.say(io, "warning: aria2 is not installed; sources download over one connection, which is slower. Install it: {s}", .{machine.aria2Install()});
     if (opts.log_file) if (log_path) |p| log.say(io, "log file: {s}", .{p});
 
     var table: jobs.Table = .{};

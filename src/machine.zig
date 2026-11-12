@@ -6,7 +6,7 @@ const builtin = @import("builtin");
 const Io = std.Io;
 
 /// The agent's own release.
-pub const version = "0.1.2";
+pub const version = "0.1.3";
 /// The helper protocol it speaks, sent as `info.version`: the server refuses helpers older than its
 /// HELPER_MIN_VERSION (direct360-server src/localWorkers.js) and only reads plain numbers ("2.0.3").
 pub const protocol_version = "2.0.4";
@@ -24,6 +24,8 @@ pub const Info = struct {
     overlay: bool,
     gpmf: bool,
     gpuStitch: bool,
+    /// aria2c is on PATH: render.js downloads sources over several connections with it, else over one (slower).
+    aria2c: bool,
 };
 
 pub const Tools = struct {
@@ -159,6 +161,16 @@ pub fn collect(arena: std.mem.Allocator, io: Io, tools: Tools, gpu_stitch: []con
         .overlay = hasAssFilter(filters_out),
         .gpmf = tools.gpmf != null,
         .gpuStitch = output(arena, io, &.{ gpu_stitch, "--version" }) != null,
+        .aria2c = output(arena, io, &.{ "aria2c", "--version" }) != null,
+    };
+}
+
+/// How to install aria2 on this system, for the log.
+pub fn aria2Install() []const u8 {
+    return switch (builtin.os.tag) {
+        .windows => "winget install aria2.aria2",
+        .macos => "brew install aria2",
+        else => "sudo apt install aria2",
     };
 }
 
