@@ -105,7 +105,7 @@ pub const Connector = struct {
             return false;
         }
         if (!std.mem.eql(u8, q.state, secret)) {
-            text(&request, .forbidden, "This link is not for this Direct360 agent.");
+            text(&request, .forbidden, "This link is not for this Direct360 Helper Agent.");
             return false;
         }
         const current = c.session.creds(io, a) catch return false;
@@ -117,11 +117,11 @@ pub const Connector = struct {
         const token = pair: {
             const r = api.post("/local-worker/pair", .{ .code = q.code, .info = c.info.* }) catch |err| {
                 log.say(io, "connecting failed: {s}", .{@errorName(err)});
-                const msg = std.fmt.allocPrint(a, "Connecting the Direct360 agent failed: {s}", .{switch (err) {
+                const msg = std.fmt.allocPrint(a, "Connecting the Direct360 Helper Agent failed: {s}", .{switch (err) {
                     error.ServerRefused => "the code is not valid or has expired. Connect again from the tray.",
                     error.Outdated => "this agent is out of date. Download the new one in Profile → Processing.",
                     else => @errorName(err),
-                }}) catch "Connecting the Direct360 agent failed.";
+                }}) catch "Connecting the Direct360 Helper Agent failed.";
                 text(&request, .bad_request, msg);
                 return false;
             };

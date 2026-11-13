@@ -171,7 +171,7 @@ fn statusLine(buf: []u8) []const u8 {
         .starting => "Starting…",
         .ready => if (busy()) "Working" else "Ready",
         .unreachable_server => std.fmt.bufPrint(buf, "Server not reached: {s}", .{s.messageSlice()}) catch "Server not reached",
-        .outdated => "Update the Direct360 agent",
+        .outdated => "Update the Direct360 Helper Agent",
         .stopped => std.fmt.bufPrint(buf, "Stopped: {s}", .{s.messageSlice()}) catch "Stopped",
     };
 }
@@ -187,7 +187,7 @@ fn notify(op: u32) void {
     nid.hIcon = icon(darkTaskbar(), dim and busy());
     var line_buf: [200]u8 = undefined;
     var tip_buf: [256]u8 = undefined;
-    const tip = std.fmt.bufPrint(&tip_buf, "Direct360 agent · {s}", .{statusLine(&line_buf)}) catch "Direct360 agent";
+    const tip = std.fmt.bufPrint(&tip_buf, "Direct360 Helper Agent · {s}", .{statusLine(&line_buf)}) catch "Direct360 Helper Agent";
     _ = wide(&nid.szTip, tip);
     if (op == NIM_MODIFY and std.mem.eql(u16, &nid.szTip, &last_tip) and !busy()) return;
     last_tip = nid.szTip;
@@ -220,7 +220,7 @@ fn showMenu(hwnd: HWND) void {
     const menu = CreatePopupMenu() orelse return;
     defer _ = DestroyMenu(menu);
     var buf: [200]u8 = undefined;
-    add(menu, MF_STRING | MF_GRAYED, 0, "Direct360 agent " ++ machine.version);
+    add(menu, MF_STRING | MF_GRAYED, 0, "Direct360 Helper Agent " ++ machine.version);
     add(menu, MF_STRING | MF_GRAYED, 0, statusLine(&buf));
     for (0..jobs.slots) |i| {
         const e = tray.table.snapshot(tray.io, i);
@@ -313,7 +313,7 @@ pub fn run(t: *Tray) !void {
     const inst = GetModuleHandleW(null);
     const wc: WNDCLASSEXW = .{ .lpfnWndProc = wndProc, .hInstance = inst, .lpszClassName = window_class, .hIcon = @ptrCast(LoadImageW(inst, 1, IMAGE_ICON, 0, 0, 0)) };
     if (RegisterClassExW(&wc) == 0) return error.TrayClass;
-    hwnd_main = CreateWindowExW(0, window_class, L("Direct360 agent"), 0, 0, 0, 0, 0, null, null, inst, null) orelse return error.TrayWindow;
+    hwnd_main = CreateWindowExW(0, window_class, L("Direct360 Helper Agent"), 0, 0, 0, 0, 0, null, null, inst, null) orelse return error.TrayWindow;
     taskbar_created = RegisterWindowMessageW(L("TaskbarCreated"));
     notify(NIM_ADD);
     _ = SetTimer(hwnd_main, 1, PULSE_MS, null);

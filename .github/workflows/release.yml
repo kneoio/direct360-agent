@@ -169,5 +169,5 @@ jobs:
           if gh release view "v$version" >/dev/null 2>&1; then
             gh release upload "v$version" dist/*.exe dist/*.deb --clobber
           else
-            gh release create "v$version" dist/*.exe dist/*.deb --target "$GITHUB_SHA" --title "Direct360 agent $version" --notes-file build/release-notes.md
+            gh release create "v$version" dist/*.exe dist/*.deb --target "$GITHUB_SHA" --title "Direct360 Helper Agent $version" --notes-file build/release-notes.md
           fi

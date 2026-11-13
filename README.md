@@ -1,4 +1,4 @@
-# Direct360 agent
+# Direct360 Helper Agent
 
 Runs a [Direct360](https://direct360.app) user's heavy video jobs (`.360` stitch, camera grid, preview copy, telemetry,
 preview and final renders) on their own computer instead of the cloud. It is the native successor of the
@@ -30,7 +30,7 @@ preview render, the outdated refusal, the tray app taking a job) and the install
 
 `direct360-agent_amd64.deb` (Ubuntu 20.04 or newer, Debian 11 or newer):
 `sudo apt install ./direct360-agent_amd64.deb`. It installs into `/opt/direct360-agent`, with
-`direct360-agent` on the PATH and Direct360 Agent in the applications. Started from there it lives in the top bar
+`direct360-agent` on the PATH and Direct360 Helper Agent in the applications. Started from there it lives in the top bar
 (an AppIndicator; apt installs `libayatana-appindicator3-1` with it), with the same menu and the same browser connect
 as on Windows; "Start when the computer starts" adds `~/.config/autostart/direct360-agent.desktop`. Without a desktop,
 or with `--headless`, it runs in the terminal. Quitting it (or Ctrl+C) also stops a running render. Each build is

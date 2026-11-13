@@ -114,7 +114,7 @@ fn statusLine(buf: []u8) []const u8 {
         .starting => "Starting…",
         .ready => if (busy()) "Working" else "Ready",
         .unreachable_server => std.fmt.bufPrint(buf, "Server not reached: {s}", .{s.messageSlice()}) catch "Server not reached",
-        .outdated => "Update the Direct360 agent",
+        .outdated => "Update the Direct360 Helper Agent",
         .stopped => std.fmt.bufPrint(buf, "Stopped: {s}", .{s.messageSlice()}) catch "Stopped",
     };
 }
@@ -163,7 +163,7 @@ fn refresh() void {
 fn onTimer(_: ?*anyopaque) callconv(.c) c_int {
     const was_dim = dim;
     dim = if (busy()) !dim else false;
-    if (dim != was_dim) gtk.app_indicator_set_icon_full(indicator, if (dim) ICON_DIM else ICON, "Direct360 agent");
+    if (dim != was_dim) gtk.app_indicator_set_icon_full(indicator, if (dim) ICON_DIM else ICON, "Direct360 Helper Agent");
     refresh();
     return 1;
 }
@@ -226,7 +226,7 @@ fn setAutostart(on: bool) void {
     const text = std.fmt.bufPrint(&text_buf,
         \\[Desktop Entry]
         \\Type=Application
-        \\Name=Direct360 Agent
+        \\Name=Direct360 Helper Agent
         \\Exec="{s}"
         \\TryExec={s}
         \\Icon=direct360-agent
@@ -277,10 +277,10 @@ pub fn run(t: *Tray) !void {
     const APP_INDICATOR_CATEGORY_APPLICATION_STATUS = 0;
     const APP_INDICATOR_STATUS_ACTIVE = 1;
     indicator = gtk.app_indicator_new_with_path("direct360-agent", ICON, APP_INDICATOR_CATEGORY_APPLICATION_STATUS, icon_dir.ptr) orelse return error.TrayIndicator;
-    gtk.app_indicator_set_title(indicator, "Direct360 agent");
+    gtk.app_indicator_set_title(indicator, "Direct360 Helper Agent");
 
     const menu = gtk.gtk_menu_new();
-    _ = item(menu, "Direct360 agent " ++ machine.version, null);
+    _ = item(menu, "Direct360 Helper Agent " ++ machine.version, null);
     item_status = item(menu, "Starting…", null);
     for (&item_jobs) |*w| w.* = item(menu, "", null);
     separator(menu);

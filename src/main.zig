@@ -156,7 +156,7 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
     if (opts.log_file) if (log_path) |p| log.openFile(io, p);
-    if (tray_app) log.say(io, "Direct360 agent {s} started (tray)", .{machine.version});
+    if (tray_app) log.say(io, "Direct360 Helper Agent {s} started (tray)", .{machine.version});
 
     // A release bundles node/, ffmpeg/ and worker/ beside the agent; each is used when present, unless given.
     const exe_suffix = if (builtin.os.tag == .windows) ".exe" else "";

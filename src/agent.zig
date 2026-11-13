@@ -95,7 +95,7 @@ pub fn serve(ctx: *job.Ctx, info: *const machine.Info, session: *Session, genera
     }
     backoff_ms = 0;
     session.setStatus(io, .ready, "");
-    log.say(io, "Direct360 agent {s} is running for {s}", .{ machine.version, ctx.server });
+    log.say(io, "Direct360 Helper Agent {s} is running for {s}", .{ machine.version, ctx.server });
 
     const stats_thread = try std.Thread.spawn(.{}, statsLoop, .{ ctx, info, session, generation });
     stats_thread.detach();

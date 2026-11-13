@@ -19,7 +19,7 @@ cp "$here/assets/icon-256.png" "$root/usr/share/icons/hicolor/256x256/apps/direc
 cat > "$root/usr/share/applications/direct360-agent.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
-Name=Direct360 Agent
+Name=Direct360 Helper Agent
 Comment=Runs your Direct360 heavy work on this computer
 Exec=/opt/direct360-agent/direct360-agent
 Icon=direct360-agent
@@ -39,7 +39,7 @@ Section: video
 Priority: optional
 Homepage: https://github.com/kneoio/direct360-agent
 Description: Runs Direct360's heavy video jobs on your own computer
- Direct360 Agent takes the stitch, camera grid, preview copy, telemetry and render
+ Direct360 Helper Agent takes the stitch, camera grid, preview copy, telemetry and render
  jobs of a Direct360 account and runs them here instead of the cloud. It lives in
  the tray and connects in the browser. Node, ffmpeg (GPL) and the job pipeline
  are included.

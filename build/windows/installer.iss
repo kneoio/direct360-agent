@@ -16,9 +16,9 @@
 
 [Setup]
 AppId={{3F6C2B8E-5D1A-4C7E-9B2F-8A4D6E1C0B37}
-AppName=Direct360 Agent
+AppName=Direct360 Helper Agent
 AppVersion={#AppVersion}
-AppVerName=Direct360 Agent {#AppVersion}
+AppVerName=Direct360 Helper Agent {#AppVersion}
 AppPublisher=Direct360
 AppPublisherURL=https://direct360.app
 AppSupportURL=https://github.com/kneoio/direct360-agent
@@ -31,7 +31,7 @@ OutputDir={#OutputDir}
 OutputBaseFilename=Direct360AgentSetup-{#AppVersion}
 SetupIconFile=..\..\assets\app.ico
 UninstallDisplayIcon={app}\direct360-agent.exe
-UninstallDisplayName=Direct360 Agent
+UninstallDisplayName=Direct360 Helper Agent
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -44,14 +44,14 @@ RestartApplications=no
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
-Name: "{autoprograms}\Direct360 Agent"; Filename: "{app}\direct360-agent.exe"
+Name: "{autoprograms}\Direct360 Helper Agent"; Filename: "{app}\direct360-agent.exe"
 
 [Registry]
 ; Only removed on uninstall; the agent's menu adds it ("Start when the computer starts").
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "Direct360 Agent"; ValueType: none; Flags: uninsdeletevalue
 
 [Run]
-Filename: "{app}\direct360-agent.exe"; Description: "Start Direct360 Agent"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\direct360-agent.exe"; Description: "Start Direct360 Helper Agent"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/IM direct360-agent.exe /T /F"; Flags: runhidden; RunOnceId: "StopAgent"
