@@ -1,7 +1,7 @@
 name: Build
 
 # Unit tests on Linux, the agent cross-compiled for every system, the Windows package (agent, Node, ffmpeg and the
-# direct360-helper job pipeline) staged on Linux and smoke-tested on Windows, and the Linux .deb built, installed and
+# direct360-server job pipeline) staged on Linux and smoke-tested on Windows, and the Linux .deb built, installed and
 # smoke-tested (the tray on a virtual display). Everything is kept as workflow artifacts; publishing a release is the
 # separate Release workflow.
 on:
@@ -11,8 +11,8 @@ on:
   workflow_dispatch:
 
 env:
-  # direct360-helper's job pipeline at the commit direct360-server depends on (transitions between pictures).
-  HELPER_REF: 9becd9f9a21a51816d04ce423d59cac56fdd1c08
+  # The job pipeline: direct360-server's pipeline/ folder at this commit (private repo: SERVER_READ_TOKEN reads it).
+  PIPELINE_REF: 7c4cdb6cd450bdcf85d9a904d4aeb90a27bd4861
 
 jobs:
   build:
@@ -39,9 +39,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
-          repository: kneoio/direct360-helper
-          ref: ${{ env.HELPER_REF }}
-          path: helper
+          repository: kneoio/direct360-server
+          ref: ${{ env.PIPELINE_REF }}
+          token: ${{ secrets.SERVER_READ_TOKEN }}
+          path: server
+          sparse-checkout: pipeline
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.1
@@ -50,7 +52,7 @@ jobs:
           node-version: 22
       - run: zig build test
       - run: zig build -Dtarget=x86_64-windows -Doptimize=ReleaseSmall
-      - run: node build/stage.mjs --target windows-x64 --helper helper --agent zig-out/bin/direct360-agent.exe
+      - run: node build/stage.mjs --target windows-x64 --pipeline server/pipeline --agent zig-out/bin/direct360-agent.exe
       - uses: actions/upload-artifact@v4
         with:
           name: windows-x64
@@ -109,9 +111,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
-          repository: kneoio/direct360-helper
-          ref: ${{ env.HELPER_REF }}
-          path: helper
+          repository: kneoio/direct360-server
+          ref: ${{ env.PIPELINE_REF }}
+          token: ${{ secrets.SERVER_READ_TOKEN }}
+          path: server
+          sparse-checkout: pipeline
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.17.1
@@ -120,7 +124,7 @@ jobs:
           node-version: 22
       - run: zig build test
       - run: zig build -Dtarget=x86_64-linux-gnu.2.31 -Doptimize=ReleaseSmall
-      - run: node build/stage.mjs --target linux-x64 --helper helper --agent zig-out/bin/direct360-agent
+      - run: node build/stage.mjs --target linux-x64 --pipeline server/pipeline --agent zig-out/bin/direct360-agent
       - name: Build the .deb
         run: build/linux/deb.sh dist/linux-x64 "$(sed -n 's/.*\.version = "\(.*\)".*/\1/p' build.zig.zon)" dist
       - uses: actions/upload-artifact@v4
