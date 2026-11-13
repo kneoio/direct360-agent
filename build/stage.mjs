@@ -29,7 +29,7 @@ const arg = (name) => {
 };
 const TARGET = arg('target');
 // The job pipeline: direct360-server's pipeline/ folder (one copy, shared with the server and the cloud worker).
-const HELPER = path.resolve(arg('pipeline'));
+const PIPELINE = path.resolve(arg('pipeline'));
 const AGENT = path.resolve(arg('agent'));
 const VERSION = fs.readFileSync(path.join(ROOT, 'build.zig.zon'), 'utf8').match(/\.version = "([^"]+)"/)[1];
 
@@ -93,18 +93,18 @@ function findFile(dir, name) {
 
 /** worker/render.js and every file it imports, relative to the pipeline folder (its own collector). */
 async function pipelineFiles() {
-  const { importedFiles } = await import(path.join(HELPER, 'src', 'version.js'));
-  return importedFiles(path.join(HELPER, 'worker', 'render.js')).map((f) => path.relative(HELPER, f));
+  const { importedFiles } = await import(path.join(PIPELINE, 'src', 'version.js'));
+  return importedFiles(path.join(PIPELINE, 'worker', 'render.js')).map((f) => path.relative(PIPELINE, f));
 }
 
-function copyFromHelper(rel) {
+function copyFromPipeline(rel) {
   const dest = path.join(OUT, rel);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
-  fs.cpSync(path.join(HELPER, rel), dest, { recursive: true });
+  fs.cpSync(path.join(PIPELINE, rel), dest, { recursive: true });
 }
 
 function buildGpmf() {
-  const src = path.join(HELPER, 'worker', 'gpmf');
+  const src = path.join(PIPELINE, 'worker', 'gpmf');
   const parser = path.join(src, 'third_party', 'gpmf-parser');
   const out = path.join(OUT, 'worker', 'gpmf', `gpmf2json${T.exe}`);
   fs.mkdirSync(path.dirname(out), { recursive: true });
@@ -113,7 +113,7 @@ function buildGpmf() {
     path.join(src, 'gpmf2json.c'), path.join(parser, 'GPMF_parser.c'), path.join(parser, 'demo', 'GPMF_mp4reader.c'), '-lm',
   ]);
   if (T.exe) fs.rmSync(out.replace(/\.exe$/, '.pdb'), { force: true });
-  for (const name of ['LICENSE.txt', 'LICENSE-APACHE', 'LICENSE-MIT']) copyFromHelper(path.join('worker', 'gpmf', 'third_party', 'gpmf-parser', name));
+  for (const name of ['LICENSE.txt', 'LICENSE-APACHE', 'LICENSE-MIT']) copyFromPipeline(path.join('worker', 'gpmf', 'third_party', 'gpmf-parser', name));
 }
 
 /** The newest Node 22 build for the target, checked against nodejs.org's SHASUMS256.txt. */
@@ -149,7 +149,7 @@ async function fetchFfmpeg(work) {
   }
   const licence = findFile(unpacked, 'LICENSE.txt');
   if (licence) fs.copyFileSync(licence, path.join(dir, 'LICENSE.txt'));
-  else fs.copyFileSync(path.join(HELPER, 'build', 'GPL-3.0.txt'), path.join(dir, 'LICENSE.txt'));
+  else fs.copyFileSync(path.join(PIPELINE, 'build', 'GPL-3.0.txt'), path.join(dir, 'LICENSE.txt'));
   fs.writeFileSync(path.join(dir, 'SOURCE.txt'), `This ffmpeg/ffprobe build is GPL software, licensed as in LICENSE.txt.\n${T.ffmpegSource}\n`);
   console.log(`ffmpeg: ${T.ffmpeg}`);
 }
@@ -171,8 +171,8 @@ fs.mkdirSync(OUT, { recursive: true });
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'd360-agent-stage-'));
 try {
   fs.copyFileSync(AGENT, path.join(OUT, `direct360-agent${T.exe}`));
-  for (const rel of ['package.json', 'lib/fonts', 'lib/watermark.png', ...(await pipelineFiles())]) copyFromHelper(rel);
-  fs.copyFileSync(path.join(HELPER, 'LICENSE'), path.join(OUT, 'worker', 'LICENSE'));
+  for (const rel of ['package.json', 'lib/fonts', 'lib/watermark.png', ...(await pipelineFiles())]) copyFromPipeline(rel);
+  fs.copyFileSync(path.join(PIPELINE, 'LICENSE'), path.join(OUT, 'worker', 'LICENSE'));
   buildGpmf();
   await fetchNode(work);
   await fetchFfmpeg(work);

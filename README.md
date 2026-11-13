@@ -1,11 +1,10 @@
 # Direct360 Helper Agent
 
 Runs a [Direct360](https://direct360.app) user's heavy video jobs (`.360` stitch, camera grid, preview copy, telemetry,
-preview and final renders) on their own computer instead of the cloud. It is the native successor of the
-Direct360 Helper (the old Node program), written in Zig: one small program per system, no runtime
-to install for the agent itself.
+preview and final renders) on their own computer instead of the cloud. Written in Zig: one small program per system,
+no runtime to install for the agent itself.
 
-It speaks the same protocol as the helper: it pairs with a one-time code from Profile → Processing, takes jobs from the
+It pairs with a one-time code from Profile → Processing, takes jobs from the
 Direct360 server by long poll, reports progress and live usage (CPU load, busy cores, memory), stops a job's whole
 process tree when the server cancels it, and reports the result. ffmpeg does the video work, unchanged.
 
