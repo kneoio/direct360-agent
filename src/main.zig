@@ -287,7 +287,7 @@ pub fn main(init: std.process.Init) !void {
             .table = &table,
             .connector = &connector,
             .log_path = if (opts.log_file) log_path else null,
-            .exe_path = std.process.executablePathAlloc(io, arena) catch "direct360-agent" ++ exe_suffix,
+            .exe_path = std.process.executablePathAlloc(io, arena) catch ("direct360-agent" ++ exe_suffix),
             .show_log = true,
         };
         if (builtin.os.tag == .linux) {

@@ -65,7 +65,7 @@ fn instanceAddress() linux.sockaddr.un {
 }
 
 fn instanceAddressLen(addr: *const linux.sockaddr.un) linux.socklen_t {
-    const name_len = std.mem.indexOfScalar(u8, addr.path[1..], 0) orelse addr.path.len - 1;
+    const name_len = std.mem.indexOfScalar(u8, addr.path[1..], 0) orelse (addr.path.len - 1);
     return @intCast(@offsetOf(linux.sockaddr.un, "path") + 1 + name_len);
 }
 
