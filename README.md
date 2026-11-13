@@ -2,7 +2,7 @@
 
 Runs a [Direct360](https://direct360.app) user's heavy video jobs (`.360` stitch, camera grid, preview copy, telemetry,
 preview and final renders) on their own computer instead of the cloud. It is the native successor of the
-[Direct360 Helper](https://github.com/kneoio/direct360-helper), written in Zig: one small program per system, no runtime
+Direct360 Helper (the old Node program), written in Zig: one small program per system, no runtime
 to install for the agent itself.
 
 It speaks the same protocol as the helper: it pairs with a one-time code from Profile → Processing, takes jobs from the
@@ -12,8 +12,8 @@ process tree when the server cancels it, and reports the result. ffmpeg does the
 ## Status
 
 Windows and Linux (Ubuntu): a tray app with an installer (`.exe`, `.deb`), connecting in the browser like
-direct360-helper 2.0.4. Jobs still run the job pipeline of `kneoio/direct360-helper` (`worker/render.js`) on Node,
-bundled; porting it is the next stage. Not yet: self-update, a macOS package.
+direct360-helper 2.0.4. Jobs run the job pipeline in `pipeline/` (`worker/render.js`) on Node,
+bundled; porting it to Zig is the next stage. Not yet: self-update, a macOS package.
 
 ## Windows
 
@@ -38,12 +38,12 @@ installed on Ubuntu and smoke-tested there, the tray on a virtual display.
 
 ## Run from source
 
-Needs ffmpeg/ffprobe, Node 20+ and a checkout of `kneoio/direct360-helper` (for `worker/render.js`).
+Needs ffmpeg/ffprobe and Node 20+. The job pipeline (`worker/render.js` and what it imports) is in `pipeline/`.
 
 ```
-direct360-agent pair ABCD-EFGH --worker ../direct360-helper/worker/render.js   # once, code from Profile → Processing
-direct360-agent --worker ../direct360-helper/worker/render.js                  # keep it running
-direct360-agent info --worker ../direct360-helper/worker/render.js             # what this computer reports
+direct360-agent pair ABCD-EFGH --worker pipeline/worker/render.js   # once, code from Profile → Processing
+direct360-agent --worker pipeline/worker/render.js                  # keep it running
+direct360-agent info --worker pipeline/worker/render.js             # what this computer reports
 direct360-agent log                                                            # the last lines of the log
 ```
 
@@ -66,7 +66,7 @@ zig build -Dtarget=x86_64-windows -Doptimize=ReleaseSmall
 zig build -Dtarget=x86_64-linux-gnu.2.31 -Doptimize=ReleaseSmall
 ```
 
-Packages: `node build/stage.mjs --target windows-x64|linux-x64 --helper <direct360-helper checkout> --agent <binary>`,
+Packages: `node build/stage.mjs --target windows-x64|linux-x64 --agent <binary>` (the pipeline comes from `pipeline/`),
 then `build/windows/installer.iss` (Inno Setup) or `build/linux/deb.sh dist/linux-x64 <version> dist`.
 
 ## Licence
