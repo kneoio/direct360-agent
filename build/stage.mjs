@@ -4,13 +4,13 @@
  * cross-compiled with Zig; Node and ffmpeg are downloaded builds for that system):
  *
  *   direct360-agent(.exe)      the agent (built before this runs, passed as --agent)
- *   worker/ src/ lib/          the job pipeline from pipeline/ (worker/render.js and what it imports),
+ *   worker/ src/ lib/          the job pipeline from direct360-server's pipeline/ (worker/render.js and what it imports),
  *   package.json               its fonts and watermark; the pipeline's package.json makes Node read them as ES modules
- *   worker/gpmf/gpmf2json      GoPro telemetry reader, built here from pipeline/worker/gpmf
+ *   worker/gpmf/gpmf2json      GoPro telemetry reader, built here from the pipeline's worker/gpmf
  *   node/                      Node.js, which still runs the pipeline
  *   ffmpeg/                    static ffmpeg/ffprobe with libass (GPL; LICENSE.txt and SOURCE.txt beside them)
  *
- *   node build/stage.mjs --target windows-x64|linux-x64 --agent <agent binary> [--pipeline <folder>]
+ *   node build/stage.mjs --target windows-x64|linux-x64 --agent <agent binary> --pipeline <direct360-server>/pipeline
  *
  * Writes dist/<target>/ and dist/direct360-agent-<version>-<target>.zip (Windows) or .tar.gz (Linux).
  */
@@ -22,18 +22,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const option = (name) => {
-  const at = process.argv.indexOf(`--${name}`);
-  return at < 0 ? null : process.argv[at + 1];
-};
 const arg = (name) => {
   const at = process.argv.indexOf(`--${name}`);
   if (at < 0 || !process.argv[at + 1]) throw new Error(`--${name} is required`);
   return process.argv[at + 1];
 };
 const TARGET = arg('target');
-// The job pipeline: this repo's pipeline/ (it used to come from a direct360-helper checkout).
-const HELPER = path.resolve(option('pipeline') ?? path.join(ROOT, 'pipeline'));
+// The job pipeline: direct360-server's pipeline/ folder (one copy, shared with the server and the cloud worker).
+const HELPER = path.resolve(arg('pipeline'));
 const AGENT = path.resolve(arg('agent'));
 const VERSION = fs.readFileSync(path.join(ROOT, 'build.zig.zon'), 'utf8').match(/\.version = "([^"]+)"/)[1];
 
@@ -162,7 +158,7 @@ function notices() {
   fs.copyFileSync(path.join(ROOT, 'LICENSE'), path.join(OUT, 'LICENSE'));
   fs.writeFileSync(path.join(OUT, 'THIRD-PARTY.txt'), [
     'Direct360 agent (MIT, LICENSE) bundles:',
-    '- The Direct360 job pipeline (MIT, from this repo\'s pipeline/): worker/, src/, lib/.',
+    '- The Direct360 job pipeline (MIT): worker/, src/, lib/.',
     '- GoPro gpmf-parser (MIT or Apache-2.0): worker/gpmf/third_party/gpmf-parser/.',
     '- Node.js (MIT and others): node/LICENSE.',
     '- ffmpeg/ffprobe (GPL): ffmpeg/LICENSE.txt and ffmpeg/SOURCE.txt.',

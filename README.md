@@ -12,7 +12,7 @@ process tree when the server cancels it, and reports the result. ffmpeg does the
 ## Status
 
 Windows and Linux (Ubuntu): a tray app with an installer (`.exe`, `.deb`), connecting in the browser like
-direct360-helper 2.0.4. Jobs run the job pipeline in `pipeline/` (`worker/render.js`) on Node,
+direct360-helper 2.0.4. Jobs run the job pipeline from direct360-server's `pipeline/` (`worker/render.js`) on Node,
 bundled; porting it to Zig is the next stage. Not yet: self-update, a macOS package.
 
 ## Windows
@@ -38,12 +38,12 @@ installed on Ubuntu and smoke-tested there, the tray on a virtual display.
 
 ## Run from source
 
-Needs ffmpeg/ffprobe and Node 20+. The job pipeline (`worker/render.js` and what it imports) is in `pipeline/`.
+Needs ffmpeg/ffprobe, Node 20+ and the job pipeline: `pipeline/` in a direct360-server checkout (`worker/render.js` and what it imports).
 
 ```
-direct360-agent pair ABCD-EFGH --worker pipeline/worker/render.js   # once, code from Profile → Processing
-direct360-agent --worker pipeline/worker/render.js                  # keep it running
-direct360-agent info --worker pipeline/worker/render.js             # what this computer reports
+direct360-agent pair ABCD-EFGH --worker ../direct360-server/pipeline/worker/render.js   # once, code from Profile → Processing
+direct360-agent --worker ../direct360-server/pipeline/worker/render.js                  # keep it running
+direct360-agent info --worker ../direct360-server/pipeline/worker/render.js             # what this computer reports
 direct360-agent log                                                            # the last lines of the log
 ```
 
@@ -66,7 +66,7 @@ zig build -Dtarget=x86_64-windows -Doptimize=ReleaseSmall
 zig build -Dtarget=x86_64-linux-gnu.2.31 -Doptimize=ReleaseSmall
 ```
 
-Packages: `node build/stage.mjs --target windows-x64|linux-x64 --agent <binary>` (the pipeline comes from `pipeline/`),
+Packages: `node build/stage.mjs --target windows-x64|linux-x64 --agent <binary> --pipeline <direct360-server>/pipeline`,
 then `build/windows/installer.iss` (Inno Setup) or `build/linux/deb.sh dist/linux-x64 <version> dist`.
 
 ## Licence
