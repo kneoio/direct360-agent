@@ -37,6 +37,8 @@ PIPELINE=${PIPELINE:-$HOME/WebstormProjects/direct360-server/pipeline}
 [ -f "$PIPELINE/worker/render.js" ] || fail "no pipeline at $PIPELINE: set PIPELINE to direct360-server's pipeline/"
 version=$(sed -n 's/.*\.version = "\(.*\)".*/\1/p' build.zig.zon)
 [ -n "$version" ] || fail "no version in build.zig.zon"
+# The agent says its own version (src/machine.zig): it must be the release's.
+grep -q "pub const version = \"$version\";" src/machine.zig || fail "src/machine.zig version is not $version (build.zig.zon)"
 echo "release $version: zig $("$ZIG" version), pipeline $PIPELINE"
 
 # stage.mjs compiles gpmf2json with `zig cc`: the same zig goes first on PATH.
