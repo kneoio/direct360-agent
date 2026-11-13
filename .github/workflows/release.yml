@@ -17,7 +17,7 @@ permissions:
 
 env:
   # direct360-helper's job pipeline at the commit direct360-server depends on (transitions between pictures).
-  HELPER_REF: 440925d7f3ef27fd8b7655e915d45260e3a66fb9
+  HELPER_REF: 9becd9f9a21a51816d04ce423d59cac56fdd1c08
 
 jobs:
   stage-windows:
