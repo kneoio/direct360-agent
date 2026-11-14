@@ -179,6 +179,11 @@ pub fn main(init: std.process.Init) !void {
         try env.put("PATH", try std.mem.concat(arena, u8, &.{ d, if (old.len > 0) sep else "", old }));
     }
     const render_js = try findRenderJs(arena, io, opts.worker);
+    // Originals the jobs download stay in ~/.direct360-agent-cache (the most recently used, up to 20 GB), so the next
+    // job on the same footage (a rebuild, a render) starts at once instead of downloading it again.
+    if (home) |h| if (env.get("D360_SOURCE_CACHE_DIR") == null)
+        try env.put("D360_SOURCE_CACHE_DIR", try std.fs.path.join(arena, &.{ h, ".direct360-agent-cache" }));
+    if (env.get("D360_SOURCE_CACHE_MAX_GB") == null) try env.put("D360_SOURCE_CACHE_MAX_GB", "20");
 
     // What is missing to run jobs, as one sentence: the terminal stops with it, the tray shows it.
     const missing: ?[]const u8 = if (machine.output(arena, io, &.{ ffmpeg, "-hide_banner", "-version" }) == null)
@@ -186,7 +191,7 @@ pub fn main(init: std.process.Init) !void {
     else if (machine.output(arena, io, &.{ ffprobe, "-hide_banner", "-version" }) == null)
         try std.fmt.allocPrint(arena, "ffprobe was not found ({s}). It comes with ffmpeg; pass --ffmpeg <folder> if it is elsewhere.", .{ffprobe})
     else if (render_js == null)
-        "worker/render.js was not found. Pass --worker <path to render.js> (it is in kneoio/direct360-helper)."
+        "worker/render.js was not found. Pass --worker <path to render.js> (it is in direct360-server's pipeline/)."
     else if (machine.output(arena, io, &.{ node, "--version" }) == null)
         try std.fmt.allocPrint(arena, "Node.js was not found ({s}); the job pipeline still runs on Node. Install Node 20+ or pass --node <path>.", .{node})
     else
