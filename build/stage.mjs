@@ -66,10 +66,9 @@ function run(cmd, args, opts = {}) {
   if (r.error || r.status !== 0) throw new Error(`${cmd} ${args.join(' ')} failed${r.error ? `: ${r.error.message}` : ` (exit ${r.status})`}`);
 }
 
-async function download(url, dest) {
-  const res = await fetch(url, { redirect: 'follow' });
-  if (!res.ok) throw new Error(`download failed: ${res.status} ${url}`);
-  fs.writeFileSync(dest, Buffer.from(await res.arrayBuffer()));
+/** Downloads with curl: it retries and waits out a slow or busy line, where Node's fetch gives up connecting after ~10 s. */
+function download(url, dest) {
+  run('curl', ['-fsSL', '--retry', '5', '--retry-all-errors', '--connect-timeout', '60', '-o', dest, url]);
   return dest;
 }
 
@@ -119,11 +118,11 @@ function buildGpmf() {
 /** The newest Node 22 build for the target, checked against nodejs.org's SHASUMS256.txt. */
 async function fetchNode(work) {
   const base = `https://nodejs.org/dist/${NODE_LINE}`;
-  const sums = await (await fetch(`${base}/SHASUMS256.txt`)).text();
+  const sums = fs.readFileSync(download(`${base}/SHASUMS256.txt`, path.join(work, 'SHASUMS256.txt')), 'utf8');
   const line = sums.split('\n').find((l) => l.trim().endsWith(`-${T.node}`));
   if (!line) throw new Error(`no ${T.node} in ${base}/SHASUMS256.txt`);
   const [sha, name] = line.trim().split(/\s+/);
-  const archive = await download(`${base}/${name}`, path.join(work, name));
+  const archive = download(`${base}/${name}`, path.join(work, name));
   const got = crypto.createHash('sha256').update(fs.readFileSync(archive)).digest('hex');
   if (got !== sha) throw new Error(`${name}: checksum ${got} is not ${sha}`);
   const unpacked = path.join(work, 'node');
@@ -137,7 +136,7 @@ async function fetchNode(work) {
 }
 
 async function fetchFfmpeg(work) {
-  const archive = await download(T.ffmpeg, path.join(work, path.basename(T.ffmpeg)));
+  const archive = download(T.ffmpeg, path.join(work, path.basename(T.ffmpeg)));
   const unpacked = path.join(work, 'ffmpeg');
   unpack(archive, unpacked);
   const dir = path.join(OUT, 'ffmpeg');
