@@ -66,12 +66,12 @@ zig build -Dtarget=x86_64-linux-gnu.2.31 -Doptimize=ReleaseSmall
 ```
 
 A release, always the same way: `build/release.sh` (tests, the Linux and Windows builds, both packages with
-direct360-server's `pipeline/`, the `.deb`, and the Windows installer when Inno Setup 6 is there, through Wine on
-Linux); `build/release.sh --publish` then creates the GitHub Release `v<version>` with `Direct360AgentSetup.exe` and
-`direct360-agent_amd64.deb`. Settings: `ZIG`, `PIPELINE`, `ISCC` (see the script).
+direct360-server's `pipeline/`, the `.deb`, and the Windows installer with NSIS's `makensis`, native on Linux:
+`sudo apt install nsis`); `build/release.sh --publish` then creates the GitHub Release `v<version>` with `Direct360AgentSetup.exe` and
+`direct360-agent_amd64.deb`. Settings: `ZIG`, `PIPELINE` (see the script).
 
 By hand: `node build/stage.mjs --target windows-x64|linux-x64 --agent <binary> --pipeline <direct360-server>/pipeline`,
-then `build/windows/installer.iss` (Inno Setup) or `build/linux/deb.sh dist/linux-x64 <version> dist`.
+then `makensis -DSOURCEDIR=dist/windows-x64 -DVERSION=<version> -DOUTDIR=dist build/windows/installer.nsi` or `build/linux/deb.sh dist/linux-x64 <version> dist`.
 
 ## Licence
 

@@ -5,18 +5,17 @@
 #
 # Steps: unit tests; the agent for Linux and Windows (Zig cross-compiles both); each package staged with the job
 # pipeline from direct360-server's pipeline/ (build/stage.mjs: the agent, Node, ffmpeg, the pipeline, gpmf2json); the
-# Ubuntu .deb (build/linux/deb.sh); the Windows installer (build/windows/installer.iss, Inno Setup 6). --publish then
-# creates the GitHub Release v<version> (the version in build.zig.zon) with Direct360AgentSetup.exe and
+# Ubuntu .deb (build/linux/deb.sh); the Windows installer (build/windows/installer.nsi, NSIS, native on Linux).
+# --publish then creates the GitHub Release v<version> (the version in build.zig.zon) with Direct360AgentSetup.exe and
 # direct360-agent_amd64.deb, names without the version, because Profile -> Processing links to
-# releases/latest/download/<name>. It refuses to publish without both files, so the Windows download never breaks.
+# releases/latest/download/<name>. Both are always built, so the Windows download never breaks.
 #
 # Settings (environment):
 #   ZIG       the zig to use; default: zig on PATH, else the newest in ~/.local/share/zig/
 #   PIPELINE  direct360-server's pipeline/ folder; default: ~/WebstormProjects/direct360-server/pipeline
-#   ISCC      Inno Setup's ISCC.exe; default: the usual place in the Wine prefix. On Linux it runs with wine.
 #
-# Needs Node 20+, dpkg-deb, curl access to nodejs.org and the ffmpeg builds, and for --publish a gh signed in with
-# write access to kneoio/direct360-agent. The commit being released should be pushed first (the release is tagged on it).
+# Needs Node 20+, dpkg-deb, makensis (Ubuntu: apt install nsis), curl access to nodejs.org and the ffmpeg builds,
+# and for --publish a gh signed in with write access to kneoio/direct360-agent. The commit being released should be pushed first (the release is tagged on it).
 set -eu
 
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -33,6 +32,7 @@ if [ -z "${ZIG:-}" ]; then
   fi
 fi
 [ -x "${ZIG:-}" ] || fail "no zig found: set ZIG"
+command -v makensis >/dev/null 2>&1 || fail "makensis is needed for the Windows installer (Ubuntu: sudo apt install nsis)"
 PIPELINE=${PIPELINE:-$HOME/WebstormProjects/direct360-server/pipeline}
 [ -f "$PIPELINE/worker/render.js" ] || fail "no pipeline at $PIPELINE: set PIPELINE to direct360-server's pipeline/"
 version=$(sed -n 's/.*\.version = "\(.*\)".*/\1/p' build.zig.zon)
@@ -57,27 +57,16 @@ dist/linux-x64/direct360-agent info --headless --no-log 2>&1 | grep -q '"ffmpeg"
 
 node build/stage.mjs --target windows-x64 --pipeline "$PIPELINE" --agent zig-out-release/windows/bin/direct360-agent.exe
 
-# The Windows installer: Inno Setup 6 (native on Windows, through Wine elsewhere).
-ISCC=${ISCC:-$HOME/.wine/drive_c/Program Files (x86)/Inno Setup 6/ISCC.exe}
-setup=""
-if [ -f "$ISCC" ]; then
-  if command -v wine >/dev/null 2>&1; then
-    wine "$ISCC" /Q "/DSourceDir=$(winepath -w "$here/dist/windows-x64")" "/DAppVersion=$version" "/DOutputDir=$(winepath -w "$here/dist")" "$(winepath -w "$here/build/windows/installer.iss")"
-  else
-    "$ISCC" /Q "/DSourceDir=$here/dist/windows-x64" "/DAppVersion=$version" "/DOutputDir=$here/dist" build/windows/installer.iss
-  fi
-  setup=$(ls dist/Direct360AgentSetup-*.exe 2>/dev/null | head -n 1)
-  [ -n "$setup" ] || fail "Inno Setup ran but made no installer"
-else
-  echo "release: no Inno Setup at $ISCC (set ISCC): the Windows installer is not built" >&2
-fi
+# The Windows installer.
+makensis -V2 "-DSOURCEDIR=$here/dist/windows-x64" "-DVERSION=$version" "-DOUTDIR=$here/dist" build/windows/installer.nsi
+setup=dist/Direct360AgentSetup-$version.exe
+[ -f "$setup" ] || fail "makensis made no installer"
 
 echo
 echo "built:"
-ls -la dist/*.deb dist/*.zip dist/*.tar.gz ${setup:+"$setup"}
+ls -la dist/*.deb dist/*.zip dist/*.tar.gz "$setup"
 
 $publish || exit 0
-[ -n "$setup" ] || fail "not publishing without the Windows installer (the Windows download would break)"
 command -v gh >/dev/null 2>&1 || fail "gh is needed to publish"
 out=dist/release
 mkdir -p "$out"
