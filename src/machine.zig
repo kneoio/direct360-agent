@@ -8,11 +8,14 @@ const Io = std.Io;
 /// The agent's own release.
 pub const version = "0.1.9";
 /// The helper protocol it speaks, sent as `info.version`: the server refuses helpers older than its
-/// HELPER_MIN_VERSION (direct360-server src/localWorkers.js) and only reads plain numbers ("2.0.3").
-pub const protocol_version = "2.0.4";
+/// HELPER_MIN_VERSION (direct360-server src/localWorkers.js) and only reads plain numbers ("2.0.3"). 2.1.0: the
+/// pipeline with no camera grid (`proxy` takes a mode, `stitch_proxy`).
+pub const protocol_version = "2.1.0";
 
 pub const Info = struct {
     version: []const u8 = protocol_version,
+    /// The agent's own release, shown to the user (Profile → Processing).
+    release: []const u8 = version,
     host: []const u8,
     os: []const u8,
     arch: []const u8,
