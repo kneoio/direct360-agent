@@ -158,7 +158,8 @@ pub fn main(init: std.process.Init) !void {
     if (opts.log_file) if (log_path) |p| log.openFile(io, p);
     if (tray_app) log.say(io, "Direct360 Helper Agent {s} started (tray)", .{machine.version});
 
-    // A release bundles node/, ffmpeg/ and worker/ beside the agent; each is used when present, unless given.
+    // A release bundles node/, ffmpeg/ and worker/ beside the agent (and aria2/ on Windows); each is used when present,
+    // unless given.
     const exe_suffix = if (builtin.os.tag == .windows) ".exe" else "";
     const exe_dir = std.process.executableDirPathAlloc(io, arena) catch ".";
     const bundled_ffmpeg = try std.fs.path.join(arena, &.{ exe_dir, "ffmpeg" });
@@ -177,6 +178,15 @@ pub fn main(init: std.process.Init) !void {
         const sep = if (builtin.os.tag == .windows) ";" else ":";
         const old = env.get("PATH") orelse "";
         try env.put("PATH", try std.mem.concat(arena, u8, &.{ d, if (old.len > 0) sep else "", old }));
+    }
+    // aria2c: the bundled one (Windows) first on PATH, as render.js runs `aria2c` by name; else the system's.
+    const bundled_aria2 = try std.fs.path.join(arena, &.{ exe_dir, "aria2" });
+    const bundled_aria2c = try std.fs.path.join(arena, &.{ bundled_aria2, "aria2c" ++ exe_suffix });
+    const aria2c = if (exists(io, bundled_aria2c)) bundled_aria2c else "aria2c";
+    if (exists(io, bundled_aria2c)) {
+        const sep = if (builtin.os.tag == .windows) ";" else ":";
+        const old = env.get("PATH") orelse "";
+        try env.put("PATH", try std.mem.concat(arena, u8, &.{ bundled_aria2, if (old.len > 0) sep else "", old }));
     }
     const render_js = try findRenderJs(arena, io, opts.worker);
     // Originals the jobs download stay in ~/.direct360-agent-cache (the most recently used, up to 20 GB), so the next
@@ -208,7 +218,7 @@ pub fn main(init: std.process.Init) !void {
         }
     };
     const gpu_stitch = env.get("D360_GPU_STITCH") orelse "gpu-stitch";
-    const info = try machine.collect(arena, io, .{ .ffmpeg = ffmpeg, .ffprobe = ffprobe, .gpmf = gpmf }, gpu_stitch, env.get("COMPUTERNAME"));
+    const info = try machine.collect(arena, io, .{ .ffmpeg = ffmpeg, .ffprobe = ffprobe, .gpmf = gpmf, .aria2c = aria2c }, gpu_stitch, env.get("COMPUTERNAME"));
 
     if (opts.command == .info) {
         const text = try std.json.Stringify.valueAlloc(arena, info, .{ .whitespace = .indent_2 });

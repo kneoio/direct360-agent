@@ -1,7 +1,8 @@
 #!/bin/sh
 # Builds the Ubuntu/Debian package from a staged Linux package (node build/stage.mjs --target linux-x64):
 # /opt/direct360-agent (the agent with its node/, ffmpeg/ and job pipeline), /usr/bin/direct360-agent, an
-# Applications entry and its icon. The tray needs libayatana-appindicator3 (and so GTK 3), which apt installs with it.
+# Applications entry and its icon. The tray needs libayatana-appindicator3 (and so GTK 3), and the jobs download sources
+# over several connections with aria2: apt installs both with it.
 #
 #   build/linux/deb.sh <staged folder> <version> <output folder>
 set -eu
@@ -34,12 +35,12 @@ Version: $version
 Architecture: amd64
 Maintainer: Direct360 <noreply@direct360.app>
 Installed-Size: $size
-Depends: libc6 (>= 2.31), libayatana-appindicator3-1
+Depends: libc6 (>= 2.31), libayatana-appindicator3-1, aria2
 Section: video
 Priority: optional
 Homepage: https://github.com/kneoio/direct360-agent
 Description: Runs Direct360's heavy video jobs on your own computer
- Direct360 Helper Agent takes the stitch, camera grid, preview copy, telemetry and render
+ Direct360 Helper Agent takes the stitch, preview copy, telemetry and render
  jobs of a Direct360 account and runs them here instead of the cloud. It lives in
  the tray and connects in the browser. Node, ffmpeg (GPL) and the job pipeline
  are included.

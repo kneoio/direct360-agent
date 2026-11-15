@@ -27,7 +27,8 @@ pub const Info = struct {
     overlay: bool,
     gpmf: bool,
     gpuStitch: bool,
-    /// aria2c is on PATH: render.js downloads sources over several connections with it, else over one (slower).
+    /// aria2c runs (bundled on Windows, apt's on Ubuntu): render.js downloads sources over several connections with it,
+    /// else over one (slower).
     aria2c: bool,
 };
 
@@ -35,6 +36,7 @@ pub const Tools = struct {
     ffmpeg: []const u8,
     ffprobe: []const u8,
     gpmf: ?[]const u8,
+    aria2c: []const u8,
 };
 
 /// Output of `argv`, or null when it cannot run or exits non-zero.
@@ -164,7 +166,7 @@ pub fn collect(arena: std.mem.Allocator, io: Io, tools: Tools, gpu_stitch: []con
         .overlay = hasAssFilter(filters_out),
         .gpmf = tools.gpmf != null,
         .gpuStitch = output(arena, io, &.{ gpu_stitch, "--version" }) != null,
-        .aria2c = output(arena, io, &.{ "aria2c", "--version" }) != null,
+        .aria2c = output(arena, io, &.{ tools.aria2c, "--version" }) != null,
     };
 }
 

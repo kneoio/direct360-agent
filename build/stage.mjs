@@ -9,6 +9,8 @@
  *   worker/gpmf/gpmf2json      GoPro telemetry reader, built here from the pipeline's worker/gpmf
  *   node/                      Node.js, which still runs the pipeline
  *   ffmpeg/                    static ffmpeg/ffprobe with libass (GPL; LICENSE.txt and SOURCE.txt beside them)
+ *   aria2/                     Windows only: aria2c, which downloads sources over several connections (GPL-2.0;
+ *                              COPYING and SOURCE.txt beside it). The Ubuntu package depends on apt's aria2 instead.
  *
  *   node build/stage.mjs --target windows-x64|linux-x64 --agent <agent binary> --pipeline <direct360-server>/pipeline
  *
@@ -34,7 +36,7 @@ const AGENT = path.resolve(arg('agent'));
 const VERSION = fs.readFileSync(path.join(ROOT, 'build.zig.zon'), 'utf8').match(/\.version = "([^"]+)"/)[1];
 
 /** Per target: the Zig target for gpmf2json, the executable suffix, the Node build (and where node is in it), the
- * ffmpeg build and the package's archive type. */
+ * ffmpeg build, the aria2 build (null: the system's) and the package's archive type. */
 const TARGETS = {
   'windows-x64': {
     zig: 'x86_64-windows-gnu',
@@ -43,6 +45,7 @@ const TARGETS = {
     nodeBin: 'node.exe',
     ffmpeg: 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-gpl-8.1.zip',
     ffmpegSource: 'FFmpeg source: https://github.com/FFmpeg/FFmpeg (release/8.1). Build scripts: https://github.com/BtbN/FFmpeg-Builds',
+    aria2: 'https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip',
     archive: 'zip',
   },
   'linux-x64': {
@@ -52,6 +55,7 @@ const TARGETS = {
     nodeBin: 'bin/node',
     ffmpeg: 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz',
     ffmpegSource: 'FFmpeg source: https://github.com/FFmpeg/FFmpeg (release/8.1). Build scripts: https://github.com/BtbN/FFmpeg-Builds',
+    aria2: null,
     archive: 'tar.gz',
   },
 };
@@ -153,6 +157,23 @@ async function fetchFfmpeg(work) {
   console.log(`ffmpeg: ${T.ffmpeg}`);
 }
 
+/** aria2c for a system that has no package manager to install it (Windows): the official release build. */
+function fetchAria2(work) {
+  if (!T.aria2) return;
+  const archive = download(T.aria2, path.join(work, path.basename(T.aria2)));
+  const unpacked = path.join(work, 'aria2');
+  unpack(archive, unpacked);
+  const dir = path.join(OUT, 'aria2');
+  fs.mkdirSync(dir, { recursive: true });
+  for (const name of [`aria2c${T.exe}`, 'COPYING']) {
+    const found = findFile(unpacked, name);
+    if (!found) throw new Error(`${name} is not in the aria2 download`);
+    fs.copyFileSync(found, path.join(dir, name));
+  }
+  fs.writeFileSync(path.join(dir, 'SOURCE.txt'), `This aria2c build is GPL-2.0 software, licensed as in COPYING.\naria2 source: https://github.com/aria2/aria2 (release-1.37.0). Build: ${T.aria2}\n`);
+  console.log(`aria2: ${T.aria2}`);
+}
+
 function notices() {
   fs.copyFileSync(path.join(ROOT, 'LICENSE'), path.join(OUT, 'LICENSE'));
   fs.writeFileSync(path.join(OUT, 'THIRD-PARTY.txt'), [
@@ -161,6 +182,7 @@ function notices() {
     '- GoPro gpmf-parser (MIT or Apache-2.0): worker/gpmf/third_party/gpmf-parser/.',
     '- Node.js (MIT and others): node/LICENSE.',
     '- ffmpeg/ffprobe (GPL): ffmpeg/LICENSE.txt and ffmpeg/SOURCE.txt.',
+    ...(T.aria2 ? ['- aria2c (GPL-2.0): aria2/COPYING and aria2/SOURCE.txt.'] : []),
     '',
   ].join('\n'));
 }
@@ -175,6 +197,7 @@ try {
   buildGpmf();
   await fetchNode(work);
   await fetchFfmpeg(work);
+  fetchAria2(work);
   notices();
 } finally {
   fs.rmSync(work, { recursive: true, force: true });
