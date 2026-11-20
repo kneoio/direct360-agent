@@ -1,6 +1,6 @@
 //! The Linux tray icon and its menu, as on Windows: the lens mark (white, for the dark top bar of Ubuntu and most
 //! desktops; pulsing while a job runs) and a menu with the version, the status, the running jobs, Connect to
-//! Direct360…, Open Direct360, Start when the computer starts, Show log and Quit. It is an AppIndicator
+//! Direct360…, Enter connection code…, Open Direct360, Start when the computer starts, Show log and Quit. It is an AppIndicator
 //! (libayatana-appindicator3 with GTK 3), loaded when the tray starts, so the agent itself still runs without them
 //! (--headless). Runs the GTK main loop on the calling thread until Quit.
 const std = @import("std");
@@ -52,6 +52,24 @@ const Lib = struct {
     gtk_check_menu_item_get_active: *const fn (*Widget) callconv(.c) c_int,
     g_signal_connect_data: *const fn (*anyopaque, [*:0]const u8, *const anyopaque, ?*anyopaque, ?*anyopaque, c_int) callconv(.c) c_ulong,
     g_timeout_add: *const fn (c_uint, SourceFn, ?*anyopaque) callconv(.c) c_uint,
+    g_idle_add: *const fn (SourceFn, ?*anyopaque) callconv(.c) c_uint,
+    gtk_dialog_new: *const fn () callconv(.c) *Widget,
+    gtk_dialog_add_button: *const fn (*Widget, [*:0]const u8, c_int) callconv(.c) *Widget,
+    gtk_dialog_get_content_area: *const fn (*Widget) callconv(.c) *Widget,
+    gtk_dialog_set_default_response: *const fn (*Widget, c_int) callconv(.c) void,
+    gtk_dialog_run: *const fn (*Widget) callconv(.c) c_int,
+    gtk_entry_new: *const fn () callconv(.c) *Widget,
+    gtk_entry_get_text: *const fn (*Widget) callconv(.c) [*:0]const u8,
+    gtk_entry_set_activates_default: *const fn (*Widget, c_int) callconv(.c) void,
+    gtk_label_new: *const fn ([*:0]const u8) callconv(.c) *Widget,
+    gtk_label_set_line_wrap: *const fn (*Widget, c_int) callconv(.c) void,
+    gtk_container_add: *const fn (*Widget, *Widget) callconv(.c) void,
+    gtk_container_set_border_width: *const fn (*Widget, c_uint) callconv(.c) void,
+    gtk_box_set_spacing: *const fn (*Widget, c_int) callconv(.c) void,
+    gtk_window_set_title: *const fn (*Widget, [*:0]const u8) callconv(.c) void,
+    gtk_window_set_keep_above: *const fn (*Widget, c_int) callconv(.c) void,
+    gtk_window_set_position: *const fn (*Widget, c_int) callconv(.c) void,
+    gtk_widget_destroy: *const fn (*Widget) callconv(.c) void,
     g_unix_fd_add: *const fn (c_int, c_uint, FdFn, ?*anyopaque) callconv(.c) c_uint,
     app_indicator_new_with_path: *const fn ([*:0]const u8, [*:0]const u8, c_int, [*:0]const u8) callconv(.c) ?*Indicator,
     app_indicator_set_status: *const fn (*Indicator, c_int) callconv(.c) void,
@@ -172,10 +190,89 @@ fn onConnect(_: *Widget, _: ?*anyopaque) callconv(.c) void {
     tray.connector.start();
 }
 
+const GTK_RESPONSE_OK = -5;
+const GTK_RESPONSE_CANCEL = -6;
+const GTK_WIN_POS_CENTER = 1;
+var code_dialog_open = false;
+
+/// A dialog with `text` and its buttons, centred and on top; the caller adds the rest and runs it.
+fn dialog(text: [*:0]const u8) struct { d: *Widget, box: *Widget } {
+    const d = gtk.gtk_dialog_new();
+    gtk.gtk_window_set_title(d, "Direct360 Helper Agent");
+    gtk.gtk_window_set_keep_above(d, 1);
+    gtk.gtk_window_set_position(d, GTK_WIN_POS_CENTER);
+    const box = gtk.gtk_dialog_get_content_area(d);
+    gtk.gtk_container_set_border_width(box, 12);
+    gtk.gtk_box_set_spacing(box, 10);
+    const label = gtk.gtk_label_new(text);
+    gtk.gtk_label_set_line_wrap(label, 1);
+    gtk.gtk_container_add(box, label);
+    return .{ .d = d, .box = box };
+}
+
+/// Tray → Enter connection code…: asks for the code from Direct360 → Settings → Processing and pairs with it on
+/// another thread; the result is shown either way.
+fn onCode(_: *Widget, _: ?*anyopaque) callconv(.c) void {
+    if (code_dialog_open) return;
+    code_dialog_open = true;
+    defer code_dialog_open = false;
+    const w = dialog("Connection code from Direct360 → Settings → Processing:");
+    const entry = gtk.gtk_entry_new();
+    gtk.gtk_entry_set_activates_default(entry, 1);
+    gtk.gtk_container_add(w.box, entry);
+    _ = gtk.gtk_dialog_add_button(w.d, "Cancel", GTK_RESPONSE_CANCEL);
+    _ = gtk.gtk_dialog_add_button(w.d, "Connect", GTK_RESPONSE_OK);
+    gtk.gtk_dialog_set_default_response(w.d, GTK_RESPONSE_OK);
+    gtk.gtk_widget_show_all(w.d);
+    const answer = gtk.gtk_dialog_run(w.d);
+    // The entry's text belongs to the dialog: copied before it goes.
+    const typed = std.mem.trim(u8, std.mem.span(gtk.gtk_entry_get_text(entry)), " \t");
+    const code = if (answer == GTK_RESPONSE_OK and typed.len > 0) tray.gpa.dupe(u8, typed) catch null else null;
+    gtk.gtk_widget_destroy(w.d);
+    const c = code orelse return;
+    const t = std.Thread.spawn(.{}, pairWithCode, .{c}) catch |err| {
+        tray.gpa.free(c);
+        log.say(tray.io, "connecting with a code could not start ({s})", .{@errorName(err)});
+        showResult("Connecting could not start.");
+        return;
+    };
+    t.detach();
+}
+
+fn pairWithCode(code: []u8) void {
+    defer tray.gpa.free(code);
+    var arena: std.heap.ArenaAllocator = .init(tray.gpa);
+    defer arena.deinit();
+    log.say(tray.io, "connecting with a code typed in the tray", .{});
+    const why = tray.connector.pairCode(arena.allocator(), code);
+    // Shown by the GTK thread; the text is freed there.
+    const text = if (why) |m| std.fmt.allocPrintSentinel(tray.gpa, "Connecting failed: {s}", .{m}, 0) else std.fmt.allocPrintSentinel(tray.gpa, "Connected to Direct360.", .{}, 0);
+    const t = text catch {
+        log.say(tray.io, "the connect result could not be shown (out of memory)", .{});
+        return;
+    };
+    _ = gtk.g_idle_add(onResult, t.ptr);
+}
+
+fn onResult(p: ?*anyopaque) callconv(.c) c_int {
+    const text: [*:0]u8 = @ptrCast(p.?);
+    showResult(text);
+    tray.gpa.free(std.mem.span(text)); // a sentinel slice: freed with its 0
+    return 0;
+}
+
+fn showResult(text: [*:0]const u8) void {
+    const w = dialog(text);
+    _ = gtk.gtk_dialog_add_button(w.d, "OK", GTK_RESPONSE_OK);
+    gtk.gtk_widget_show_all(w.d);
+    _ = gtk.gtk_dialog_run(w.d);
+    gtk.gtk_widget_destroy(w.d);
+}
+
 fn onOpen(_: *Widget, _: ?*anyopaque) callconv(.c) void {
     var web_buf: [300]u8 = undefined;
     var url_buf: [320]u8 = undefined;
-    const url = std.fmt.bufPrint(&url_buf, "{s}/profile", .{tray.session.webBase(tray.io, &web_buf)}) catch return;
+    const url = std.fmt.bufPrint(&url_buf, "{s}" ++ connect.settings_path, .{tray.session.webBase(tray.io, &web_buf)}) catch return;
     _ = platform.open(tray.gpa, tray.io, url);
 }
 
@@ -285,6 +382,7 @@ pub fn run(t: *Tray) !void {
     for (&item_jobs) |*w| w.* = item(menu, "", null);
     separator(menu);
     item_connect = item(menu, "Connect to Direct360…", onConnect);
+    _ = item(menu, "Enter connection code…", onCode);
     _ = item(menu, "Open Direct360", onOpen);
     separator(menu);
     item_autostart = gtk.gtk_check_menu_item_new_with_label("Start when the computer starts");

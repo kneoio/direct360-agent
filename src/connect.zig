@@ -1,8 +1,9 @@
 //! Connecting this agent to the user's Direct360 account in the browser, as direct360-helper 2.0.4 does: a one-time
-//! server on 127.0.0.1 and a random state; the browser opens Profile → Processing with both
+//! server on 127.0.0.1 and a random state; the browser opens Settings → Processing (`/settings`) with both
 //! (`?helper-port=<port>&helper-state=<state>`), the signed-in user confirms there, and the page sends the browser
 //! back to `http://127.0.0.1:<port>/pair?state=…&code=…&server=…&web=…`. The agent pairs with the server that page
-//! belongs to, keeps the pairing, sends the browser back to the profile, and the job loop starts with it.
+//! belongs to, keeps the pairing, sends the browser back to Settings, and the job loop starts with it.
+//! Or the user types the code from Settings → Processing into the tray (`pairCode`).
 const std = @import("std");
 const Io = std.Io;
 const Api = @import("api.zig").Api;
@@ -25,7 +26,7 @@ pub const Connector = struct {
     url: [512]u8 = undefined,
     url_len: usize = 0,
 
-    /// Opens Profile → Processing to connect; a second call while one waits opens the same page again.
+    /// Opens Settings → Processing to connect; a second call while one waits opens the same page again.
     pub fn start(c: *Connector) void {
         if (c.active.load(.acquire)) {
             _ = platform.open(c.gpa, c.io, c.url[0..c.url_len]);
@@ -55,7 +56,7 @@ pub const Connector = struct {
         const secret = std.fmt.bufPrint(&secret_buf, "{x}", .{&secret_bytes}) catch return;
         var web_buf: [300]u8 = undefined;
         const web = c.session.webBase(io, &web_buf);
-        const url = std.fmt.bufPrint(&c.url, "{s}/profile?helper-port={d}&helper-state={s}", .{ web, server.socket.address.getPort(), secret }) catch return;
+        const url = std.fmt.bufPrint(&c.url, "{s}" ++ settings_path ++ "?helper-port={d}&helper-state={s}", .{ web, server.socket.address.getPort(), secret }) catch return;
         c.url_len = url.len;
         log.say(io, "connecting: {s}", .{url});
         if (!platform.open(c.gpa, io, url)) log.say(io, "open this page in your browser to connect: {s}", .{url});
@@ -112,35 +113,55 @@ pub const Connector = struct {
         // The page that issued the code says which server and site it belongs to: the agent pairs there.
         const server = httpUrl(q.server) orelse current.server;
         const web = httpUrl(q.web) orelse current.web;
-        var api = Api.init(c.gpa, io, server, "");
-        defer api.deinit();
-        const token = pair: {
-            const r = api.post("/local-worker/pair", .{ .code = q.code, .info = c.info.* }) catch |err| {
-                log.say(io, "connecting failed: {s}", .{@errorName(err)});
-                const msg = std.fmt.allocPrint(a, "Connecting the Direct360 Helper Agent failed: {s}", .{switch (err) {
-                    error.ServerRefused => "the code is not valid or has expired. Connect again from the tray.",
-                    error.Outdated => "this agent is out of date. Download the new one in Profile → Processing.",
-                    else => @errorName(err),
-                }}) catch "Connecting the Direct360 Helper Agent failed.";
-                text(&request, .bad_request, msg);
-                return false;
-            };
-            defer r.deinit(c.gpa);
-            const Paired = struct { token: []const u8 };
-            // Copied out of the reply, which is freed when this block ends.
-            const p = std.json.parseFromSliceLeaky(Paired, a, r.body, .{ .ignore_unknown_fields = true, .allocate = .alloc_always }) catch return false;
-            break :pair p.token;
-        };
-        config.save(c.gpa, io, c.config_path, .{ .server = server, .token = token, .web = web }) catch |err|
-            log.say(io, "the pairing could not be saved ({s}); it lasts until the agent quits", .{@errorName(err)});
-        c.session.setCreds(io, server, token, web) catch return false;
-        log.say(io, "connected to Direct360 at {s}", .{server});
+        if (c.pairWith(a, server, web, q.code)) |why| {
+            const msg = std.fmt.allocPrint(a, "Connecting the Direct360 Helper Agent failed: {s}", .{why}) catch "Connecting the Direct360 Helper Agent failed.";
+            text(&request, .bad_request, msg);
+            return false;
+        }
         var web_buf: [300]u8 = undefined;
-        const back = std.fmt.allocPrint(a, "{s}/profile", .{c.session.webBase(io, &web_buf)}) catch return true;
+        const back = std.fmt.allocPrint(a, "{s}" ++ settings_path, .{c.session.webBase(io, &web_buf)}) catch return true;
         request.respond("", .{ .status = .found, .keep_alive = false, .extra_headers = &.{.{ .name = "location", .value = back }} }) catch {};
         return true;
     }
+
+    /// Pairs with a code the user typed in the tray (from Direct360 → Settings → Processing), on the server this agent
+    /// uses. Null once paired, else what went wrong, to show the user.
+    pub fn pairCode(c: *Connector, a: std.mem.Allocator, code: []const u8) ?[]const u8 {
+        const current = c.session.creds(c.io, a) catch return "out of memory";
+        return c.pairWith(a, current.server, current.web, std.mem.trim(u8, code, " \t\r\n"));
+    }
+
+    /// Trades `code` for a token on `server`, keeps the pairing and hands it to the job loop. Null once paired, else
+    /// what went wrong, for the user (the details are in the log).
+    fn pairWith(c: *Connector, a: std.mem.Allocator, server: []const u8, web: []const u8, code: []const u8) ?[]const u8 {
+        const io = c.io;
+        var api = Api.init(c.gpa, io, server, "");
+        defer api.deinit();
+        const r = api.post("/local-worker/pair", .{ .code = code, .info = c.info.* }) catch |err| {
+            log.say(io, "connecting failed: {s}", .{@errorName(err)});
+            return switch (err) {
+                error.ServerRefused => "the code is not valid or has expired. Get a new one in Direct360 → Settings → Processing.",
+                error.Outdated => "this agent is out of date. Download the new one in Direct360 → Settings → Processing.",
+                else => std.fmt.allocPrint(a, "{s} was not reached ({s}).", .{ server, @errorName(err) }) catch @errorName(err),
+            };
+        };
+        defer r.deinit(c.gpa);
+        const Paired = struct { token: []const u8 };
+        // Copied out of the reply, which is freed when this function returns.
+        const p = std.json.parseFromSliceLeaky(Paired, a, r.body, .{ .ignore_unknown_fields = true, .allocate = .alloc_always }) catch {
+            log.say(io, "connecting failed: the server's answer has no token", .{});
+            return "the server's answer was not understood.";
+        };
+        config.save(c.gpa, io, c.config_path, .{ .server = server, .token = p.token, .web = web }) catch |err|
+            log.say(io, "the pairing could not be saved ({s}); it lasts until the agent quits", .{@errorName(err)});
+        c.session.setCreds(io, server, p.token, web) catch return "out of memory";
+        log.say(io, "connected to Direct360 at {s}", .{server});
+        return null;
+    }
 };
+
+/// Direct360's Settings page, which has the Processing card: the browser connect opens it, the tray's Open Direct360 too.
+pub const settings_path = "/settings";
 
 fn text(request: *std.http.Server.Request, status: std.http.Status, body: []const u8) void {
     request.respond(body, .{ .status = status, .keep_alive = false, .extra_headers = &.{.{ .name = "content-type", .value = "text/plain; charset=utf-8" }} }) catch {};

@@ -1,4 +1,4 @@
-//! What this computer has, as the server's local worker record and the Direct360 profile show it: system,
+//! What this computer has, as the server's local worker record and Direct360's Settings show it: system,
 //! processor, memory, ffmpeg version and hardware encoders, and which optional tools are present. The keys
 //! match what direct360-server keeps (src/localWorkers.js, cleanInfo).
 const std = @import("std");
@@ -6,7 +6,7 @@ const builtin = @import("builtin");
 const Io = std.Io;
 
 /// The agent's own release.
-pub const version = "0.2.2";
+pub const version = "0.2.3";
 /// The helper protocol it speaks, sent as `info.version`: the server refuses helpers older than its
 /// HELPER_MIN_VERSION (direct360-server src/localWorkers.js) and only reads plain numbers ("2.0.3"). 2.1.0: the
 /// pipeline with no camera grid (`proxy` takes a mode, `stitch_proxy`).
@@ -14,7 +14,7 @@ pub const protocol_version = "2.1.0";
 
 pub const Info = struct {
     version: []const u8 = protocol_version,
-    /// The agent's own release, shown to the user (Profile → Processing).
+    /// The agent's own release, shown to the user (Settings → Processing).
     release: []const u8 = version,
     host: []const u8,
     os: []const u8,
@@ -103,7 +103,7 @@ fn osName(arena: std.mem.Allocator) []const u8 {
     return std.fmt.allocPrint(arena, "{s} {s}", .{ sys, rel }) catch sys;
 }
 
-/// The computer's name, as the profile shows it to tell computers apart.
+/// The computer's name, as Settings shows it to tell computers apart.
 fn hostName(arena: std.mem.Allocator) []const u8 {
     if (builtin.os.tag == .windows) return "";
     var buf: [std.posix.HOST_NAME_MAX]u8 = undefined;

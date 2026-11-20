@@ -4,7 +4,7 @@ Runs a [Direct360](https://direct360.app) user's heavy video jobs (`.360` stitch
 preview and final renders) on their own computer instead of the cloud. Written in Zig: one small program per system,
 no runtime to install for the agent itself.
 
-It pairs with a one-time code from Profile → Processing, takes jobs from the
+It pairs with a one-time code from Settings → Processing, takes jobs from the
 Direct360 server by long poll, reports progress and live usage (CPU load, busy cores, memory), stops a job's whole
 process tree when the server cancels it, and reports the result. ffmpeg does the video work, unchanged.
 
@@ -18,8 +18,8 @@ bundled; porting it to Zig is the next stage. Not yet: self-update, a macOS pack
 
 `Direct360AgentSetup.exe` installs it for the current user (no administrator rights) and starts it. The
 agent lives in the tray (the Direct360 lens mark; it pulses while a job runs). When it is not connected yet it opens
-Direct360 → Profile → Processing in the browser; confirm there and it connects by itself. Its menu: the status and the
-running jobs, Connect to Direct360…, Open Direct360, Start when the computer starts, Show log, Quit. The install folder
+Direct360 → Settings → Processing in the browser; confirm there and it connects by itself. Its menu: the status and the
+running jobs, Connect to Direct360…, Enter connection code…, Open Direct360, Start when the computer starts, Show log, Quit. The install folder
 goes on the user's PATH, so `direct360-helper-agent` runs from a new terminal (`direct360-helper-agent pair <CODE>`);
 `direct360-agent`, the name until 0.2.1, still works (`direct360-agent.cmd` beside it runs the same program).
 
@@ -42,7 +42,7 @@ installed on Ubuntu and smoke-tested there, the tray on a virtual display.
 Needs ffmpeg/ffprobe, Node 20+ and the job pipeline: `pipeline/` in a direct360-server checkout (`worker/render.js` and what it imports).
 
 ```
-direct360-helper-agent pair ABCD-EFGH --worker ../direct360-server/pipeline/worker/render.js   # once, code from Profile → Processing
+direct360-helper-agent pair ABCD-EFGH --worker ../direct360-server/pipeline/worker/render.js   # once, code from Settings → Processing
 direct360-helper-agent --worker ../direct360-server/pipeline/worker/render.js                  # keep it running
 direct360-helper-agent info --worker ../direct360-server/pipeline/worker/render.js             # what this computer reports
 direct360-helper-agent log                                                            # the last lines of the log

@@ -36,7 +36,7 @@ fn statsLoop(ctx: *job.Ctx, info: *const machine.Info, session: *Session, genera
     var first = true;
     while (true) {
         const busy = ctx.table.count(io) > 0;
-        // The first report goes out soon after start, so the profile shows the computer's load right away.
+        // The first report goes out soon after start, so Settings shows the computer's load right away.
         const wait: u64 = if (busy or first) stats_busy_ms else stats_idle_ms;
         first = false;
         io.sleep(.fromMilliseconds(@intCast(wait)), .awake) catch return;

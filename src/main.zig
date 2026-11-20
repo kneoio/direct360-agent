@@ -5,7 +5,7 @@
 //! On Windows, and on Linux with a desktop, started without a command it is the tray app: an icon with a menu,
 //! connecting in the browser (on Windows no console window). Elsewhere, or with --headless, it runs in the terminal:
 //!
-//!   direct360-helper-agent pair ABCD-EFGH     pair with the code from Profile → Processing
+//!   direct360-helper-agent pair ABCD-EFGH     pair with the code from Settings → Processing
 //!   direct360-helper-agent connect            pair in the browser instead
 //!   direct360-helper-agent                    keep it running
 //!   direct360-helper-agent info               what this computer reports
@@ -236,7 +236,7 @@ pub fn main(init: std.process.Init) !void {
         var api = Api.init(gpa, io, cfg.server, "");
         defer api.deinit();
         const r = api.post("/local-worker/pair", .{ .code = opts.code.?, .info = info }) catch |err| switch (err) {
-            error.ServerRefused => fail("Pairing failed: the code is not valid or has expired; get a new one in your profile.", .{}),
+            error.ServerRefused => fail("Pairing failed: the code is not valid or has expired; get a new one in Direct360 → Settings → Processing.", .{}),
             error.Outdated => fail("This agent is too old for the server; update it.", .{}),
             else => fail("Pairing failed: {s}", .{@errorName(err)}),
         };
@@ -257,7 +257,7 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
-    if (!tray_app and cfg.token.len == 0) fail("This agent is not paired yet. In Direct360, open Profile → Processing for a code, then run:\n  direct360-helper-agent pair <code>\nor connect in the browser: direct360-helper-agent connect", .{});
+    if (!tray_app and cfg.token.len == 0) fail("This agent is not paired yet. In Direct360, open Settings → Processing for a code, then run:\n  direct360-helper-agent pair <code>\nor connect in the browser: direct360-helper-agent connect", .{});
     log.say(io, "ffmpeg {s}, {d} threads, {d:.0} GB, hardware encoders: {s}", .{
         if (info.ffmpeg.len > 0) info.ffmpeg else "?",
         info.cpuThreads,
@@ -319,7 +319,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     agent.serve(&ctx, &info, &session, 0) catch |err| switch (err) {
-        error.NotPaired => fail("This agent is no longer paired. Pair it again from Profile → Processing.", .{}),
+        error.NotPaired => fail("This agent is no longer paired. Pair it again from Settings → Processing.", .{}),
         error.Outdated => fail("This agent is too old for the server; update it.", .{}),
         else => fail("The agent stopped: {s}", .{@errorName(err)}),
     };

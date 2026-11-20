@@ -1,6 +1,6 @@
 //! The Windows tray icon and its menu, as in direct360-helper 2.0.4: the lens mark (black on a light taskbar, white on
 //! a dark one, pulsing while a job runs), a tooltip with the status, and a menu with the version, the status, the
-//! running jobs, Connect to Direct360…, Open Direct360, Start when the computer starts, Show log and Quit.
+//! running jobs, Connect to Direct360…, Enter connection code…, Open Direct360, Start when the computer starts, Show log and Quit.
 //! Runs the window message loop on the calling thread until Quit.
 const std = @import("std");
 const builtin = @import("builtin");
@@ -23,6 +23,41 @@ const LPARAM = isize;
 const LRESULT = isize;
 
 const POINT = extern struct { x: i32, y: i32 };
+const RECT = extern struct { left: i32, top: i32, right: i32, bottom: i32 };
+const LOGFONTW = extern struct {
+    height: i32,
+    width: i32,
+    escapement: i32,
+    orientation: i32,
+    weight: i32,
+    italic: u8,
+    underline: u8,
+    strike_out: u8,
+    char_set: u8,
+    out_precision: u8,
+    clip_precision: u8,
+    quality: u8,
+    pitch_and_family: u8,
+    face_name: [32]u16,
+};
+const NONCLIENTMETRICSW = extern struct {
+    cbSize: u32 = @sizeOf(NONCLIENTMETRICSW),
+    border_width: i32 = 0,
+    scroll_width: i32 = 0,
+    scroll_height: i32 = 0,
+    caption_width: i32 = 0,
+    caption_height: i32 = 0,
+    caption_font: LOGFONTW = undefined,
+    sm_caption_width: i32 = 0,
+    sm_caption_height: i32 = 0,
+    sm_caption_font: LOGFONTW = undefined,
+    menu_width: i32 = 0,
+    menu_height: i32 = 0,
+    menu_font: LOGFONTW = undefined,
+    status_font: LOGFONTW = undefined,
+    message_font: LOGFONTW = undefined,
+    padded_border_width: i32 = 0,
+};
 const MSG = extern struct { hwnd: ?HWND, message: u32, wParam: WPARAM, lParam: LPARAM, time: u32, pt: POINT, private: u32 };
 const WNDPROC = *const fn (HWND, u32, WPARAM, LPARAM) callconv(.winapi) LRESULT;
 const WNDCLASSEXW = extern struct {
@@ -79,6 +114,16 @@ extern "user32" fn RegisterWindowMessageW([*:0]const u16) callconv(.winapi) u32;
 extern "user32" fn FindWindowW(?[*:0]const u16, ?[*:0]const u16) callconv(.winapi) ?HWND;
 extern "shell32" fn Shell_NotifyIconW(u32, *NOTIFYICONDATAW) callconv(.winapi) i32;
 extern "kernel32" fn GetModuleHandleW(?[*:0]const u16) callconv(.winapi) ?HINSTANCE;
+extern "user32" fn MessageBoxW(?HWND, [*:0]const u16, [*:0]const u16, u32) callconv(.winapi) i32;
+extern "user32" fn IsDialogMessageW(HWND, *MSG) callconv(.winapi) i32;
+extern "user32" fn GetWindowTextW(HWND, [*]u16, i32) callconv(.winapi) i32;
+extern "user32" fn DestroyWindow(HWND) callconv(.winapi) i32;
+extern "user32" fn SendMessageW(HWND, u32, WPARAM, LPARAM) callconv(.winapi) LRESULT;
+extern "user32" fn SetFocus(?HWND) callconv(.winapi) ?HWND;
+extern "user32" fn LoadCursorW(?HINSTANCE, usize) callconv(.winapi) ?*anyopaque;
+extern "user32" fn AdjustWindowRectEx(*RECT, u32, i32, u32) callconv(.winapi) i32;
+extern "user32" fn SystemParametersInfoW(u32, u32, ?*anyopaque, u32) callconv(.winapi) i32;
+extern "gdi32" fn CreateFontIndirectW(*const LOGFONTW) callconv(.winapi) ?*anyopaque;
 extern "advapi32" fn RegGetValueW(hkey: usize, sub: [*:0]const u16, value: [*:0]const u16, flags: u32, type_: ?*u32, data: ?*anyopaque, len: ?*u32) callconv(.winapi) i32;
 extern "advapi32" fn RegSetKeyValueW(hkey: usize, sub: [*:0]const u16, value: [*:0]const u16, type_: u32, data: ?*const anyopaque, len: u32) callconv(.winapi) i32;
 extern "advapi32" fn RegDeleteKeyValueW(hkey: usize, sub: [*:0]const u16, value: [*:0]const u16) callconv(.winapi) i32;
@@ -124,6 +169,37 @@ const ID_OPEN = 2;
 const ID_AUTOSTART = 3;
 const ID_LOG = 4;
 const ID_QUIT = 5;
+const ID_CODE = 6;
+
+const WM_CLOSE = 0x0010;
+const WM_SETFONT = 0x0030;
+const WM_COMMAND = 0x0111;
+const EM_LIMITTEXT = 0x00C5;
+const IDOK = 1;
+const IDCANCEL = 2;
+const ID_CODE_EDIT = 100;
+const WS_POPUP: u32 = 0x80000000;
+const WS_CHILD: u32 = 0x40000000;
+const WS_VISIBLE: u32 = 0x10000000;
+const WS_CAPTION: u32 = 0x00C00000;
+const WS_SYSMENU: u32 = 0x00080000;
+const WS_TABSTOP: u32 = 0x00010000;
+const WS_EX_DLGMODALFRAME: u32 = 0x1;
+const WS_EX_TOPMOST: u32 = 0x8;
+const WS_EX_CLIENTEDGE: u32 = 0x200;
+const ES_UPPERCASE: u32 = 0x8;
+const ES_AUTOHSCROLL: u32 = 0x80;
+const BS_DEFPUSHBUTTON: u32 = 0x1;
+const SPI_GETNONCLIENTMETRICS = 0x29;
+const COLOR_BTNFACE = 15;
+const IDC_ARROW = 32512;
+const SM_CXSCREEN = 0;
+const SM_CYSCREEN = 1;
+const MB_ICONERROR = 0x10;
+const MB_ICONINFORMATION = 0x40;
+const MB_SETFOREGROUND = 0x10000;
+const MB_TOPMOST = 0x40000;
+const code_class = L("Direct360AgentCode");
 
 pub const Tray = struct {
     gpa: std.mem.Allocator,
@@ -233,6 +309,7 @@ fn showMenu(hwnd: HWND) void {
     _ = AppendMenuW(menu, MF_SEPARATOR, 0, null);
     const unpaired = tray.session.snapshot(tray.io).status == .unpaired;
     add(menu, MF_STRING, ID_CONNECT, if (unpaired) "Connect to Direct360…" else "Connect again…");
+    add(menu, MF_STRING, ID_CODE, "Enter connection code…");
     add(menu, MF_STRING, ID_OPEN, "Open Direct360");
     _ = AppendMenuW(menu, MF_SEPARATOR, 0, null);
     add(menu, MF_STRING | (if (autostart()) @as(u32, MF_CHECKED) else 0), ID_AUTOSTART, "Start when the computer starts");
@@ -247,10 +324,11 @@ fn showMenu(hwnd: HWND) void {
     _ = PostMessageW(hwnd, WM_NULL, 0, 0);
     switch (cmd) {
         ID_CONNECT => tray.connector.start(),
+        ID_CODE => enterCode(),
         ID_OPEN => {
             var web_buf: [300]u8 = undefined;
             var url_buf: [320]u8 = undefined;
-            const url = std.fmt.bufPrint(&url_buf, "{s}/profile", .{tray.session.webBase(tray.io, &web_buf)}) catch return;
+            const url = std.fmt.bufPrint(&url_buf, "{s}" ++ connect.settings_path, .{tray.session.webBase(tray.io, &web_buf)}) catch return;
             _ = platform.open(tray.gpa, tray.io, url);
         },
         ID_AUTOSTART => setAutostart(!autostart()),
@@ -262,6 +340,127 @@ fn showMenu(hwnd: HWND) void {
             PostQuitMessage(0);
         },
         else => {},
+    }
+}
+
+/// The "Enter connection code" window while it is open, and what was typed when Connect was pressed.
+var code_window: ?HWND = null;
+var code_edit: ?HWND = null;
+var code_text: [64]u16 = undefined;
+var code_len: usize = 0;
+var code_font: ?*anyopaque = null;
+
+fn codeProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.winapi) LRESULT {
+    switch (msg) {
+        WM_COMMAND => {
+            const id = wparam & 0xFFFF;
+            if (id == IDOK) {
+                const n = if (code_edit) |e| GetWindowTextW(e, &code_text, code_text.len) else 0;
+                code_len = @intCast(@max(n, 0));
+                _ = DestroyWindow(hwnd);
+            } else if (id == IDCANCEL) {
+                code_len = 0;
+                _ = DestroyWindow(hwnd);
+            }
+            return 0;
+        },
+        WM_CLOSE => {
+            code_len = 0;
+            _ = DestroyWindow(hwnd);
+            return 0;
+        },
+        WM_DESTROY => {
+            code_window = null;
+            code_edit = null;
+            return 0;
+        },
+        else => return DefWindowProcW(hwnd, msg, wparam, lparam),
+    }
+}
+
+fn child(parent: HWND, class: [*:0]const u16, text: [*:0]const u16, style: u32, ex: u32, id: usize, x: i32, y: i32, w: i32, h: i32) ?HWND {
+    const c = CreateWindowExW(ex, class, text, WS_CHILD | WS_VISIBLE | style, x, y, w, h, parent, @ptrFromInt(id), GetModuleHandleW(null), null) orelse return null;
+    if (code_font) |f| _ = SendMessageW(c, WM_SETFONT, @intFromPtr(f), 1);
+    return c;
+}
+
+/// A small window asking for the code from Direct360 → Settings → Processing; runs its own message loop until it is
+/// closed. The code typed (UTF-16), or null when cancelled or left empty.
+fn askCode() ?[]const u16 {
+    const inst = GetModuleHandleW(null);
+    if (code_font == null) {
+        var m: NONCLIENTMETRICSW = .{};
+        if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, @sizeOf(NONCLIENTMETRICSW), &m, 0) != 0) code_font = CreateFontIndirectW(&m.message_font);
+    }
+    const style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE;
+    const ex = WS_EX_DLGMODALFRAME | WS_EX_TOPMOST;
+    var r: RECT = .{ .left = 0, .top = 0, .right = 380, .bottom = 136 };
+    _ = AdjustWindowRectEx(&r, style, 0, ex);
+    const w = r.right - r.left;
+    const h = r.bottom - r.top;
+    const x = @divTrunc(GetSystemMetrics(SM_CXSCREEN) - w, 2);
+    const y = @divTrunc(GetSystemMetrics(SM_CYSCREEN) - h, 2);
+    const win = CreateWindowExW(ex, code_class, L("Direct360 Helper Agent"), style, x, y, w, h, null, null, inst, null) orelse return null;
+    code_window = win;
+    code_len = 0;
+    _ = child(win, L("STATIC"), L("Connection code from Direct360 → Settings → Processing:"), 0, 0, 0, 16, 16, 348, 20);
+    code_edit = child(win, L("EDIT"), L(""), WS_TABSTOP | ES_UPPERCASE | ES_AUTOHSCROLL, WS_EX_CLIENTEDGE, ID_CODE_EDIT, 16, 44, 348, 26);
+    if (code_edit) |e| _ = SendMessageW(e, EM_LIMITTEXT, code_text.len - 1, 0);
+    _ = child(win, L("BUTTON"), L("Connect"), WS_TABSTOP | BS_DEFPUSHBUTTON, 0, IDOK, 196, 92, 80, 28);
+    _ = child(win, L("BUTTON"), L("Cancel"), WS_TABSTOP, 0, IDCANCEL, 284, 92, 80, 28);
+    _ = SetForegroundWindow(win);
+    _ = SetFocus(code_edit);
+
+    var msg: MSG = undefined;
+    while (code_window != null) {
+        const got = GetMessageW(&msg, null, 0, 0);
+        if (got <= 0) {
+            // Quit was asked while the window was open: close it and pass the quit on to the main loop.
+            if (code_window) |cw| _ = DestroyWindow(cw);
+            if (got == 0) PostQuitMessage(@intCast(msg.wParam));
+            return null;
+        }
+        // Tab, Enter (Connect) and Esc (Cancel) as in a dialog.
+        if (code_window) |cw| if (IsDialogMessageW(cw, &msg) != 0) continue;
+        _ = TranslateMessage(&msg);
+        _ = DispatchMessageW(&msg);
+    }
+    const typed = std.mem.trim(u16, code_text[0..code_len], &.{ ' ', '\t' });
+    return if (typed.len == 0) null else typed;
+}
+
+fn message(flags: u32, text: []const u8) void {
+    var buf: [700]u16 = undefined;
+    _ = MessageBoxW(null, wide(&buf, text).ptr, L("Direct360 Helper Agent"), flags | MB_SETFOREGROUND | MB_TOPMOST);
+}
+
+/// Tray → Enter connection code…: asks for the code and pairs with it on another thread; the result is shown either way.
+fn enterCode() void {
+    if (code_window) |w| {
+        _ = SetForegroundWindow(w);
+        return;
+    }
+    const typed = askCode() orelse return;
+    const code = std.unicode.utf16LeToUtf8Alloc(tray.gpa, typed) catch return;
+    const t = std.Thread.spawn(.{}, pairWithCode, .{code}) catch |err| {
+        tray.gpa.free(code);
+        message(MB_ICONERROR, "Connecting could not start.");
+        log.say(tray.io, "connecting with a code could not start ({s})", .{@errorName(err)});
+        return;
+    };
+    t.detach();
+}
+
+fn pairWithCode(code: []u8) void {
+    defer tray.gpa.free(code);
+    var arena: std.heap.ArenaAllocator = .init(tray.gpa);
+    defer arena.deinit();
+    log.say(tray.io, "connecting with a code typed in the tray", .{});
+    if (tray.connector.pairCode(arena.allocator(), code)) |why| {
+        var buf: [600]u8 = undefined;
+        message(MB_ICONERROR, std.fmt.bufPrint(&buf, "Connecting failed: {s}", .{why}) catch "Connecting failed.");
+    } else {
+        message(MB_ICONINFORMATION, "Connected to Direct360.");
     }
 }
 
@@ -313,6 +512,15 @@ pub fn run(t: *Tray) !void {
     const inst = GetModuleHandleW(null);
     const wc: WNDCLASSEXW = .{ .lpfnWndProc = wndProc, .hInstance = inst, .lpszClassName = window_class, .hIcon = @ptrCast(LoadImageW(inst, 1, IMAGE_ICON, 0, 0, 0)) };
     if (RegisterClassExW(&wc) == 0) return error.TrayClass;
+    const code_wc: WNDCLASSEXW = .{
+        .lpfnWndProc = codeProc,
+        .hInstance = inst,
+        .lpszClassName = code_class,
+        .hIcon = wc.hIcon,
+        .hCursor = LoadCursorW(null, IDC_ARROW),
+        .hbrBackground = @ptrFromInt(COLOR_BTNFACE + 1),
+    };
+    if (RegisterClassExW(&code_wc) == 0) return error.TrayClass;
     hwnd_main = CreateWindowExW(0, window_class, L("Direct360 Helper Agent"), 0, 0, 0, 0, 0, null, null, inst, null) orelse return error.TrayWindow;
     taskbar_created = RegisterWindowMessageW(L("TaskbarCreated"));
     notify(NIM_ADD);

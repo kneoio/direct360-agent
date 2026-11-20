@@ -9,7 +9,7 @@ const file_name = ".direct360-agent.json";
 pub const Config = struct {
     server: []const u8 = default_server,
     token: []const u8 = "",
-    /// The site that connected this agent (its Profile page is opened from the tray); empty: the server without /api.
+    /// The site that connected this agent (its Settings page is opened from the tray); empty: the server without /api.
     web: []const u8 = "",
 };
 
