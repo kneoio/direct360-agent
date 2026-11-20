@@ -17,7 +17,7 @@ pub fn build(b: *std.Build) void {
     root.addAnonymousImport("tray_white_png", .{ .root_source_file = b.path("assets/tray-white.png") });
     root.addAnonymousImport("tray_white_dim_png", .{ .root_source_file = b.path("assets/tray-white-dim.png") });
 
-    const exe = b.addExecutable(.{ .name = "direct360-agent", .root_module = root });
+    const exe = b.addExecutable(.{ .name = "direct360-helper-agent", .root_module = root });
     // The Windows program lives in the tray: no console window of its own.
     if (target.result.os.tag == .windows) exe.subsystem = .windows;
     b.installArtifact(exe);

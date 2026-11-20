@@ -50,12 +50,12 @@ rm -rf dist zig-out-release
 "$ZIG" build -Dtarget=x86_64-linux-gnu.2.31 -Doptimize=ReleaseSmall --prefix zig-out-release/linux
 "$ZIG" build -Dtarget=x86_64-windows -Doptimize=ReleaseSmall --prefix zig-out-release/windows
 
-node build/stage.mjs --target linux-x64 --pipeline "$PIPELINE" --agent zig-out-release/linux/bin/direct360-agent
+node build/stage.mjs --target linux-x64 --pipeline "$PIPELINE" --agent zig-out-release/linux/bin/direct360-helper-agent
 sh build/linux/deb.sh dist/linux-x64 "$version" dist
 # The packaged agent must start and find its ffmpeg, Node and pipeline.
-dist/linux-x64/direct360-agent info --headless --no-log 2>&1 | grep -q '"ffmpeg"' || fail "the Linux package does not run"
+dist/linux-x64/direct360-helper-agent info --headless --no-log 2>&1 | grep -q '"ffmpeg"' || fail "the Linux package does not run"
 
-node build/stage.mjs --target windows-x64 --pipeline "$PIPELINE" --agent zig-out-release/windows/bin/direct360-agent.exe
+node build/stage.mjs --target windows-x64 --pipeline "$PIPELINE" --agent zig-out-release/windows/bin/direct360-helper-agent.exe
 
 # The Windows installer.
 makensis -V2 "-DSOURCEDIR=$here/dist/windows-x64" "-DVERSION=$version" "-DOUTDIR=$here/dist" build/windows/installer.nsi

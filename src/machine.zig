@@ -6,7 +6,7 @@ const builtin = @import("builtin");
 const Io = std.Io;
 
 /// The agent's own release.
-pub const version = "0.2.1";
+pub const version = "0.2.2";
 /// The helper protocol it speaks, sent as `info.version`: the server refuses helpers older than its
 /// HELPER_MIN_VERSION (direct360-server src/localWorkers.js) and only reads plain numbers ("2.0.3"). 2.1.0: the
 /// pipeline with no camera grid (`proxy` takes a mode, `stitch_proxy`).

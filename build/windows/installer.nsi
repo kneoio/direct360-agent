@@ -1,6 +1,7 @@
 ; Direct360 agent installer (NSIS 3). Installs for the current user, without administrator rights, into
 ; %LOCALAPPDATA%\Programs\Direct360 Agent, adds a Start menu entry and starts the agent when it finishes (the agent
-; then opens the connect page in the browser). The uninstaller stops the agent and removes its autostart entry.
+; then opens the connect page in the browser), and puts the folder on the user's PATH for direct360-helper-agent (and
+; direct360-agent.cmd, the old name). The uninstaller stops the agent and removes its autostart entry and the PATH entry.
 ; makensis runs natively on Linux, Windows and macOS:
 ;
 ;   makensis -DSOURCEDIR=<unzipped package> -DVERSION=<version> -DOUTDIR=<folder> build/windows/installer.nsi
@@ -16,7 +17,8 @@
 !endif
 
 !define APP "Direct360 Helper Agent"
-!define EXE "direct360-agent.exe"
+!define EXE "direct360-helper-agent.exe"
+!define OLD_EXE "direct360-agent.exe"
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Direct360Agent"
 !define RUN_KEY "Software\Microsoft\Windows\CurrentVersion\Run"
 
@@ -31,6 +33,8 @@ BrandingText "${APP} ${VERSION}"
 
 !include "MUI2.nsh"
 !include "x64.nsh"
+!include "LogicLib.nsh"
+!include "WinMessages.nsh"
 
 !define MUI_ICON "../../assets/app.ico"
 !define MUI_UNICON "../../assets/app.ico"
@@ -57,14 +61,38 @@ Function .onInit
   ${EndIf}
 FunctionEnd
 
+; The user's PATH (HKCU\Environment, unexpanded, so %VARS% in it stay as they are) with the install folder added once,
+; or removed: PowerShell does the string work, as NSIS strings stop at 1024 characters and a long PATH would be cut.
+; The folder goes in through the environment, so no character in it can break the command.
+!macro EditUserPath ACTION
+  System::Call 'kernel32::SetEnvironmentVariable(t "D360_INSTDIR", t "$INSTDIR")'
+  nsExec::ExecToLog `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$ErrorActionPreference = 'Stop'; $$dir = $$env:D360_INSTDIR; if (-not $$dir) { exit 2 }; $$k = (Get-Item 'HKCU:\').OpenSubKey('Environment', $$true); $$old = [string]$$k.GetValue('Path', '', 'DoNotExpandEnvironmentNames'); $$kind = if ($$old) { $$k.GetValueKind('Path') } else { 'ExpandString' }; $$parts = @($$old -split ';' | Where-Object { $$_ -and $$_.TrimEnd('\') -ne $$dir.TrimEnd('\') }); if ('${ACTION}' -eq 'add') { $$parts += $$dir }; $$k.SetValue('Path', ($$parts -join ';'), $$kind)"`
+  Pop $0
+  ${If} $0 != 0
+    MessageBox MB_ICONSTOP "${APP}: the PATH could not be updated (error $0)."
+    Abort
+  ${EndIf}
+  SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
+!macroend
+
 Section
-  ; A running agent holds its files: stop it before they are replaced.
+  ; A running agent holds its files: stop it before they are replaced (also one from before the rename).
   nsExec::Exec '"$SYSDIR\taskkill.exe" /IM ${EXE} /T /F'
+  nsExec::Exec '"$SYSDIR\taskkill.exe" /IM ${OLD_EXE} /T /F'
   Sleep 500
+  ; Until 0.2.1 the program was direct360-agent.exe; that name is now direct360-agent.cmd, which runs this one.
+  Delete "$INSTDIR\${OLD_EXE}"
   SetOutPath "$INSTDIR"
   File /r "${SOURCEDIR}/*"
   WriteUninstaller "$INSTDIR\uninstall.exe"
   CreateShortcut "$SMPROGRAMS\${APP}.lnk" "$INSTDIR\${EXE}"
+  ; An autostart entry the agent wrote (Start when the computer starts) points at the program as it is now named.
+  ReadRegStr $0 HKCU "${RUN_KEY}" "Direct360 Agent"
+  ${If} $0 != ""
+    WriteRegStr HKCU "${RUN_KEY}" "Direct360 Agent" '"$INSTDIR\${EXE}"'
+  ${EndIf}
+  ; direct360-helper-agent (and the old direct360-agent) run from any terminal.
+  !insertmacro EditUserPath add
 
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "${APP}"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion" "${VERSION}"
@@ -82,6 +110,7 @@ SectionEnd
 Section "Uninstall"
   nsExec::Exec '"$SYSDIR\taskkill.exe" /IM ${EXE} /T /F'
   Sleep 500
+  !insertmacro EditUserPath remove
   ; The agent writes its own autostart entry (Start when the computer starts); it goes with it.
   DeleteRegValue HKCU "${RUN_KEY}" "Direct360 Agent"
   Delete "$SMPROGRAMS\${APP}.lnk"

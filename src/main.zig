@@ -5,11 +5,11 @@
 //! On Windows, and on Linux with a desktop, started without a command it is the tray app: an icon with a menu,
 //! connecting in the browser (on Windows no console window). Elsewhere, or with --headless, it runs in the terminal:
 //!
-//!   direct360-agent pair ABCD-EFGH     pair with the code from Profile → Processing
-//!   direct360-agent connect            pair in the browser instead
-//!   direct360-agent                    keep it running
-//!   direct360-agent info               what this computer reports
-//!   direct360-agent log                the last lines of the log file
+//!   direct360-helper-agent pair ABCD-EFGH     pair with the code from Profile → Processing
+//!   direct360-helper-agent connect            pair in the browser instead
+//!   direct360-helper-agent                    keep it running
+//!   direct360-helper-agent info               what this computer reports
+//!   direct360-helper-agent log                the last lines of the log file
 //!
 //! Options: --server <url>, --ffmpeg <folder with ffmpeg and ffprobe>, --worker <path to render.js>,
 //! --node <path to node>, --verbose, --headless (no tray), --no-log (no log file; while testing it is on by default).
@@ -30,7 +30,7 @@ const connect = @import("connect.zig");
 const tray_ui = if (builtin.os.tag == .windows) @import("tray_windows.zig") else @import("tray_linux.zig");
 
 const usage =
-    \\Usage: direct360-agent [pair <code> | connect | info | log] [--server <url>] [--ffmpeg <folder>] [--worker <render.js>] [--node <node>] [--verbose] [--headless] [--no-log]
+    \\Usage: direct360-helper-agent [pair <code> | connect | info | log] [--server <url>] [--ffmpeg <folder>] [--worker <render.js>] [--node <node>] [--verbose] [--headless] [--no-log]
     \\
 ;
 
@@ -139,7 +139,7 @@ pub fn main(init: std.process.Init) !void {
     const tray_app = (builtin.os.tag == .windows or builtin.os.tag == .linux) and opts.command == .run and !opts.headless and desktop;
 
     if (opts.command == .version) {
-        std.debug.print("direct360-agent {s}\n", .{machine.version});
+        std.debug.print("direct360-helper-agent {s}\n", .{machine.version});
         return;
     }
     if (tray_app and !platform.firstInstance()) {
@@ -244,7 +244,7 @@ pub fn main(init: std.process.Init) !void {
         const Paired = struct { token: []const u8 };
         const paired = try std.json.parseFromSliceLeaky(Paired, arena, r.body, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
         try config.save(gpa, io, cfg_path, .{ .server = cfg.server, .token = paired.token, .web = cfg.web });
-        log.say(io, "Paired with {s}. Now start the agent: direct360-agent", .{cfg.server});
+        log.say(io, "Paired with {s}. Now start the agent: direct360-helper-agent", .{cfg.server});
         return;
     }
 
@@ -257,7 +257,7 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
-    if (!tray_app and cfg.token.len == 0) fail("This agent is not paired yet. In Direct360, open Profile → Processing for a code, then run:\n  direct360-agent pair <code>\nor connect in the browser: direct360-agent connect", .{});
+    if (!tray_app and cfg.token.len == 0) fail("This agent is not paired yet. In Direct360, open Profile → Processing for a code, then run:\n  direct360-helper-agent pair <code>\nor connect in the browser: direct360-helper-agent connect", .{});
     log.say(io, "ffmpeg {s}, {d} threads, {d:.0} GB, hardware encoders: {s}", .{
         if (info.ffmpeg.len > 0) info.ffmpeg else "?",
         info.cpuThreads,
@@ -302,7 +302,7 @@ pub fn main(init: std.process.Init) !void {
             .table = &table,
             .connector = &connector,
             .log_path = if (opts.log_file) log_path else null,
-            .exe_path = std.process.executablePathAlloc(io, arena) catch ("direct360-agent" ++ exe_suffix),
+            .exe_path = std.process.executablePathAlloc(io, arena) catch ("direct360-helper-agent" ++ exe_suffix),
             .show_log = true,
         };
         if (builtin.os.tag == .linux) {
@@ -312,7 +312,7 @@ pub fn main(init: std.process.Init) !void {
         }
         tray_ui.run(&t) catch |err| {
             log.say(io, "the tray icon could not be shown: {s}", .{@errorName(err)});
-            if (builtin.os.tag == .linux) fail("The tray icon could not be shown ({s}). Install it with: sudo apt install libayatana-appindicator3-1\nor run the agent in the terminal: direct360-agent --headless", .{@errorName(err)});
+            if (builtin.os.tag == .linux) fail("The tray icon could not be shown ({s}). Install it with: sudo apt install libayatana-appindicator3-1\nor run the agent in the terminal: direct360-helper-agent --headless", .{@errorName(err)});
             fail("The tray icon could not be shown: {s}", .{@errorName(err)});
         };
         std.process.exit(0);

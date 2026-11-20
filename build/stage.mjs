@@ -3,7 +3,8 @@
  * Assembles a release package of the agent for one system, from any computer (the agent and gpmf2json are
  * cross-compiled with Zig; Node and ffmpeg are downloaded builds for that system):
  *
- *   direct360-agent(.exe)      the agent (built before this runs, passed as --agent)
+ *   direct360-helper-agent(.exe) the agent (built before this runs, passed as --agent)
+ *   direct360-agent(.cmd)      the old name: a .cmd (Windows) or symlink (Linux) that runs direct360-helper-agent
  *   worker/ src/ lib/          the job pipeline from direct360-server's pipeline/ (worker/render.js and what it imports),
  *   package.json               its fonts and watermark; the pipeline's package.json makes Node read them as ES modules
  *   worker/gpmf/gpmf2json      GoPro telemetry reader, built here from the pipeline's worker/gpmf
@@ -191,7 +192,11 @@ fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(OUT, { recursive: true });
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'd360-agent-stage-'));
 try {
-  fs.copyFileSync(AGENT, path.join(OUT, `direct360-agent${T.exe}`));
+  fs.copyFileSync(AGENT, path.join(OUT, `direct360-helper-agent${T.exe}`));
+  // The old name, direct360-agent, still runs it with the same arguments (and old autostart entries still find it):
+  // on Windows a .cmd beside the exe, on Linux a symlink.
+  if (T.exe) fs.writeFileSync(path.join(OUT, 'direct360-agent.cmd'), '@"%~dp0direct360-helper-agent.exe" %*\r\n');
+  else fs.symlinkSync('direct360-helper-agent', path.join(OUT, 'direct360-agent'));
   for (const rel of ['package.json', 'lib/fonts', 'lib/watermark.png', ...(await pipelineFiles())]) copyFromPipeline(rel);
   fs.copyFileSync(path.join(PIPELINE, 'LICENSE'), path.join(OUT, 'worker', 'LICENSE'));
   buildGpmf();

@@ -19,7 +19,9 @@ bundled; porting it to Zig is the next stage. Not yet: self-update, a macOS pack
 `Direct360AgentSetup.exe` installs it for the current user (no administrator rights) and starts it. The
 agent lives in the tray (the Direct360 lens mark; it pulses while a job runs). When it is not connected yet it opens
 Direct360 → Profile → Processing in the browser; confirm there and it connects by itself. Its menu: the status and the
-running jobs, Connect to Direct360…, Open Direct360, Start when the computer starts, Show log, Quit.
+running jobs, Connect to Direct360…, Open Direct360, Start when the computer starts, Show log, Quit. The install folder
+goes on the user's PATH, so `direct360-helper-agent` runs from a new terminal (`direct360-helper-agent pair <CODE>`);
+`direct360-agent`, the name until 0.2.1, still works (`direct360-agent.cmd` beside it runs the same program).
 
 Download it from [Releases](https://github.com/kneoio/direct360-agent/releases/latest). Everything it needs is inside:
 Node, ffmpeg (GPL) and the job pipeline. Quitting it also stops a running render. Each build is smoke-tested on Windows before release (`test/smoke.test.mjs`: pair, a
@@ -29,7 +31,7 @@ preview render, the outdated refusal, the tray app taking a job) and the install
 
 `direct360-agent_amd64.deb` (Ubuntu 20.04 or newer, Debian 11 or newer):
 `sudo apt install ./direct360-agent_amd64.deb`. It installs into `/opt/direct360-agent`, with
-`direct360-agent` on the PATH and Direct360 Helper Agent in the applications. Started from there it lives in the top bar
+`direct360-helper-agent` on the PATH (`direct360-agent`, the name until 0.2.1, runs the same program) and Direct360 Helper Agent in the applications. Started from there it lives in the top bar
 (an AppIndicator; apt installs `libayatana-appindicator3-1` with it), with the same menu and the same browser connect
 as on Windows; "Start when the computer starts" adds `~/.config/autostart/direct360-agent.desktop`. Without a desktop,
 or with `--headless`, it runs in the terminal. Quitting it (or Ctrl+C) also stops a running render. Each build is
@@ -40,13 +42,13 @@ installed on Ubuntu and smoke-tested there, the tray on a virtual display.
 Needs ffmpeg/ffprobe, Node 20+ and the job pipeline: `pipeline/` in a direct360-server checkout (`worker/render.js` and what it imports).
 
 ```
-direct360-agent pair ABCD-EFGH --worker ../direct360-server/pipeline/worker/render.js   # once, code from Profile → Processing
-direct360-agent --worker ../direct360-server/pipeline/worker/render.js                  # keep it running
-direct360-agent info --worker ../direct360-server/pipeline/worker/render.js             # what this computer reports
-direct360-agent log                                                            # the last lines of the log
+direct360-helper-agent pair ABCD-EFGH --worker ../direct360-server/pipeline/worker/render.js   # once, code from Profile → Processing
+direct360-helper-agent --worker ../direct360-server/pipeline/worker/render.js                  # keep it running
+direct360-helper-agent info --worker ../direct360-server/pipeline/worker/render.js             # what this computer reports
+direct360-helper-agent log                                                            # the last lines of the log
 ```
 
-On Windows and on a Linux desktop, `--headless` runs it in the terminal instead of the tray; `direct360-agent connect`
+On Windows and on a Linux desktop, `--headless` runs it in the terminal instead of the tray; `direct360-helper-agent connect`
 pairs in the browser from the terminal.
 
 Options: `--server <url>` (default `https://direct360.app/api`), `--ffmpeg <folder with ffmpeg and ffprobe>`,
@@ -59,7 +61,7 @@ and `worker/` are used without options. The pairing is kept in `~/.direct360-age
 Zig 0.17.1.
 
 ```
-zig build                     # zig-out/bin/direct360-agent
+zig build                     # zig-out/bin/direct360-helper-agent
 zig build test                # unit tests
 zig build -Dtarget=x86_64-windows -Doptimize=ReleaseSmall
 zig build -Dtarget=x86_64-linux-gnu.2.31 -Doptimize=ReleaseSmall

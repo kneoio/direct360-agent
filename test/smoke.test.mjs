@@ -16,7 +16,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const EXE = process.platform === 'win32' ? '.exe' : '';
-const AGENT = path.resolve(process.env.D360_SMOKE_AGENT || path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'zig-out', 'bin', `direct360-agent${EXE}`));
+const AGENT = path.resolve(process.env.D360_SMOKE_AGENT || path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'zig-out', 'bin', `direct360-helper-agent${EXE}`));
 const PACKAGED = fs.existsSync(path.join(path.dirname(AGENT), 'ffmpeg', `ffmpeg${EXE}`));
 const FFDIR = process.env.D360_SMOKE_FFMPEG ? path.resolve(process.env.D360_SMOKE_FFMPEG) : PACKAGED ? path.join(path.dirname(AGENT), 'ffmpeg') : null;
 const FFMPEG = FFDIR ? path.join(FFDIR, `ffmpeg${EXE}`) : 'ffmpeg';
