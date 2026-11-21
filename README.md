@@ -68,10 +68,16 @@ zig build -Dtarget=x86_64-windows -Doptimize=ReleaseSmall
 zig build -Dtarget=x86_64-linux-gnu.2.31 -Doptimize=ReleaseSmall
 ```
 
-A release, always the same way: `build/release.sh` (tests, the Linux and Windows builds, both packages with
-the pipeline from a direct360-pipeline checkout, the `.deb`, and the Windows installer with NSIS's `makensis`, native on Linux:
-`sudo apt install nsis`); `build/release.sh --publish` then creates the GitHub Release `v<version>` with `Direct360AgentSetup.exe` and
-`direct360-agent_amd64.deb`. Settings: `ZIG`, `PIPELINE` (see the script).
+Releases are built by GitHub Actions, on GitHub's own machines, from this repo and the public
+[direct360-pipeline](https://github.com/kneoio/direct360-pipeline): Actions → Release → Run workflow (on master; tick
+*publish* to create the GitHub Release `v<version>` with `Direct360AgentSetup.exe` and `direct360-agent_amd64.deb`, and
+pick the pipeline's branch, tag or commit). Without *publish* it only builds; the two files are the run's artifact, and
+the run's summary shows both commits and the files' SHA-256.
+
+The workflow runs `build/release.sh` (tests, the Linux and Windows builds, both packages with the pipeline from a
+direct360-pipeline checkout, the `.deb`, and the Windows installer with NSIS's `makensis`, native on Linux:
+`sudo apt install nsis`), which also runs on any Linux computer to try a build; the files land in `dist/release`, and
+`build/publish.sh` publishes them. Settings: `ZIG`, `PIPELINE` (see the script).
 
 By hand: `node build/stage.mjs --target windows-x64|linux-x64 --agent <binary> --pipeline <direct360-pipeline checkout>`,
 then `makensis -DSOURCEDIR=dist/windows-x64 -DVERSION=<version> -DOUTDIR=dist build/windows/installer.nsi` or `build/linux/deb.sh dist/linux-x64 <version> dist`.
