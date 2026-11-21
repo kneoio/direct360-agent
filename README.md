@@ -82,6 +82,29 @@ direct360-pipeline checkout, the `.deb`, and the Windows installer with NSIS's `
 By hand: `node build/stage.mjs --target windows-x64|linux-x64 --agent <binary> --pipeline <direct360-pipeline checkout>`,
 then `makensis -DSOURCEDIR=dist/windows-x64 -DVERSION=<version> -DOUTDIR=dist build/windows/installer.nsi` or `build/linux/deb.sh dist/linux-x64 <version> dist`.
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by
+[SignPath Foundation](https://signpath.org).
+
+Only the Windows installer built by the Release workflow (`.github/workflows/release.yml`) on GitHub's own machines is
+signed, from this repository and [direct360-pipeline](https://github.com/kneoio/direct360-pipeline). Nothing built
+anywhere else is signed.
+
+Roles:
+- Committers and reviewers: members of the [kneoio](https://github.com/kneoio) GitHub organization.
+- Approvers: owners of the kneoio organization. Every signing request is approved by hand.
+
+All members use two-factor authentication on GitHub and SignPath.
+
+### Privacy
+
+This program does not send any information to other networked systems unless the user asks it to. Once the user
+connects it to their Direct360 account (by entering a connection code or confirming in the browser), it talks only to
+direct360.app: it sends this computer's name, operating system, processor, memory and the video encoders and tools it
+has, so Direct360 can offer the right jobs, and it downloads and uploads the files of the jobs it runs. See the
+[Direct360 privacy policy](https://direct360.app/privacy).
+
 ## Licence
 
 MIT.
