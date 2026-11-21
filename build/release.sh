@@ -6,9 +6,9 @@
 # Steps: unit tests; the agent for Linux and Windows (Zig cross-compiles both); each package staged with the job
 # pipeline from a checkout of kneoio/direct360-pipeline (build/stage.mjs: the agent, Node, ffmpeg, the pipeline, gpmf2json); the
 # Ubuntu .deb (build/linux/deb.sh); the Windows installer (build/windows/installer.nsi, NSIS, native on Linux).
-# --publish then creates the GitHub Release v<version> (the version in build.zig.zon) with Direct360AgentSetup.exe and
-# direct360-agent_amd64.deb, names without the version, because Profile -> Processing links to
-# releases/latest/download/<name>. Both are always built, so the Windows download never breaks.
+# The two downloads end up in dist/release; --publish then puts them on GitHub (build/publish.sh).
+# Releases are built by GitHub Actions (.github/workflows/release.yml), which runs this script on GitHub's own
+# machines, so every published file is built from public, pushed source; running it here is for trying a build.
 #
 # Settings (environment):
 #   ZIG       the zig to use; default: zig on PATH, else the newest in ~/.local/share/zig/
@@ -70,16 +70,10 @@ echo
 echo "built:"
 ls -la dist/*.deb dist/*.zip dist/*.tar.gz "$setup"
 
+# The two downloads under the names the release gives them (build/publish.sh puts dist/release on GitHub).
+mkdir -p dist/release
+cp "$setup" dist/release/Direct360AgentSetup.exe
+cp dist/direct360-agent_"$version"_amd64.deb dist/release/direct360-agent_amd64.deb
+
 $publish || exit 0
-command -v gh >/dev/null 2>&1 || fail "gh is needed to publish"
-out=dist/release
-mkdir -p "$out"
-cp "$setup" "$out/Direct360AgentSetup.exe"
-cp dist/direct360-agent_"$version"_amd64.deb "$out/direct360-agent_amd64.deb"
-if gh release view "v$version" -R kneoio/direct360-agent >/dev/null 2>&1; then
-  gh release upload "v$version" "$out/Direct360AgentSetup.exe" "$out/direct360-agent_amd64.deb" -R kneoio/direct360-agent --clobber
-else
-  gh release create "v$version" "$out/Direct360AgentSetup.exe" "$out/direct360-agent_amd64.deb" -R kneoio/direct360-agent \
-    --target "$(git rev-parse HEAD)" --title "Direct360 Helper Agent $version" --notes-file build/release-notes.md
-fi
-echo "published v$version"
+sh build/publish.sh

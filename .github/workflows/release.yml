@@ -1,0 +1,74 @@
+# Builds a release of the agent on GitHub's own machines from public, pushed source: this repo at the commit it runs
+# on and kneoio/direct360-pipeline at pipeline_ref. build/release.sh does the build (tests, both agents, both packages,
+# the .deb and the Windows installer); the two downloads are kept as the run's artifact, and with publish they become
+# the GitHub Release v<version> (build/publish.sh).
+#
+# Run it from Actions -> Release -> Run workflow, on master.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the GitHub Release v<version> (otherwise only build)
+        type: boolean
+        default: false
+      pipeline_ref:
+        description: The kneoio/direct360-pipeline branch, tag or commit to build with
+        type: string
+        default: master
+
+permissions:
+  contents: write
+
+env:
+  ZIG_VERSION: 0.17.1
+  ZIG_SHA256: 3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: agent
+      - uses: actions/checkout@v4
+        with:
+          repository: kneoio/direct360-pipeline
+          ref: ${{ inputs.pipeline_ref }}
+          path: pipeline
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: NSIS
+        run: sudo apt-get update && sudo apt-get install -y nsis
+      - name: Zig
+        run: |
+          curl -fsSL --retry 5 -o zig.tar.xz "https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-linux-$ZIG_VERSION.tar.xz"
+          echo "$ZIG_SHA256  zig.tar.xz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/zig"
+          tar -xJf zig.tar.xz -C "$RUNNER_TEMP/zig" --strip-components=1
+          rm zig.tar.xz
+          echo "ZIG=$RUNNER_TEMP/zig/zig" >> "$GITHUB_ENV"
+      - name: Build
+        working-directory: agent
+        env:
+          PIPELINE: ${{ github.workspace }}/pipeline
+        run: |
+          sh build/release.sh
+          {
+            echo "Agent: \`$(git rev-parse --short HEAD)\`, pipeline: \`$(git -C "$PIPELINE" rev-parse --short HEAD)\` (kneoio/direct360-pipeline)"
+            echo
+            ( cd dist/release && sha256sum * ) | sed 's/^/    /'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: direct360-agent-release
+          path: agent/dist/release/
+          if-no-files-found: error
+      - name: Publish
+        if: inputs.publish
+        working-directory: agent
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: sh build/publish.sh
