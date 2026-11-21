@@ -131,6 +131,24 @@ pub const Connector = struct {
         return c.pairWith(a, current.server, current.web, std.mem.trim(u8, code, " \t\r\n"));
     }
 
+    /// Tray → Disconnect: forgets this agent's token (in the saved pairing too); the job loop takes no more jobs (one
+    /// already running finishes) and the status is Not connected, so the tray offers to connect again. The server keeps it listed until
+    /// it is removed in Direct360 → Settings → Processing. False when the pairing could not be saved without the token.
+    pub fn disconnect(c: *Connector) bool {
+        const io = c.io;
+        var arena: std.heap.ArenaAllocator = .init(c.gpa);
+        defer arena.deinit();
+        const current = c.session.creds(io, arena.allocator()) catch return false;
+        config.save(c.gpa, io, c.config_path, .{ .server = current.server, .token = "", .web = current.web }) catch |err| {
+            log.say(io, "disconnecting failed: the pairing could not be saved ({s})", .{@errorName(err)});
+            return false;
+        };
+        c.session.setCreds(io, current.server, "", current.web) catch return false;
+        c.session.setStatus(io, .unpaired, "");
+        log.say(io, "disconnected from Direct360", .{});
+        return true;
+    }
+
     /// Trades `code` for a token on `server`, keeps the pairing and hands it to the job loop. Null once paired, else
     /// what went wrong, for the user (the details are in the log).
     fn pairWith(c: *Connector, a: std.mem.Allocator, server: []const u8, web: []const u8, code: []const u8) ?[]const u8 {

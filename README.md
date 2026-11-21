@@ -19,7 +19,7 @@ bundled; porting it to Zig is the next stage. Not yet: self-update, a macOS pack
 `Direct360AgentSetup.exe` installs it for the current user (no administrator rights) and starts it. The
 agent lives in the tray (the Direct360 lens mark; it pulses while a job runs). When it is not connected yet it opens
 Direct360 → Settings → Processing in the browser; confirm there and it connects by itself. Its menu: the status and the
-running jobs, Connect to Direct360…, Enter connection code…, Open Direct360, Start when the computer starts, Show log, Quit. The install folder
+running jobs, Connect to Direct360… and Enter connection code… (Disconnect once connected), Open Direct360, Start when the computer starts, Show log, Quit. The install folder
 goes on the user's PATH, so `direct360-helper-agent` runs from a new terminal (`direct360-helper-agent pair <CODE>`);
 `direct360-agent`, the name until 0.2.1, still works (`direct360-agent.cmd` beside it runs the same program).
 

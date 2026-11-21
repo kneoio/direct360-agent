@@ -1,6 +1,6 @@
 //! The Linux tray icon and its menu, as on Windows: the lens mark (white, for the dark top bar of Ubuntu and most
 //! desktops; pulsing while a job runs) and a menu with the version, the status, the running jobs, Connect to
-//! Direct360…, Enter connection code…, Open Direct360, Start when the computer starts, Show log and Quit. It is an AppIndicator
+//! Direct360… and Enter connection code… (Disconnect once connected), Open Direct360, Start when the computer starts, Show log and Quit. It is an AppIndicator
 //! (libayatana-appindicator3 with GTK 3), loaded when the tray starts, so the agent itself still runs without them
 //! (--headless). Runs the GTK main loop on the calling thread until Quit.
 const std = @import("std");
@@ -113,6 +113,8 @@ var indicator: *Indicator = undefined;
 var item_status: *Widget = undefined;
 var item_jobs: [jobs.slots]*Widget = undefined;
 var item_connect: *Widget = undefined;
+var item_code: *Widget = undefined;
+var item_disconnect: *Widget = undefined;
 var item_autostart: *Widget = undefined;
 var dim = false;
 var last_status: [200]u8 = undefined;
@@ -155,7 +157,10 @@ fn refresh() void {
     }
     const unpaired = tray.session.snapshot(tray.io).status == .unpaired;
     if (last_unpaired != unpaired) {
-        setLabel(item_connect, if (unpaired) "Connect to Direct360…" else "Connect again…");
+        // Connected: Disconnect only; not connected: the two ways to connect.
+        gtk.gtk_widget_set_visible(item_connect, @intFromBool(unpaired));
+        gtk.gtk_widget_set_visible(item_code, @intFromBool(unpaired));
+        gtk.gtk_widget_set_visible(item_disconnect, @intFromBool(!unpaired));
         last_unpaired = unpaired;
     }
     for (0..jobs.slots) |i| {
@@ -188,6 +193,12 @@ fn onTimer(_: ?*anyopaque) callconv(.c) c_int {
 
 fn onConnect(_: *Widget, _: ?*anyopaque) callconv(.c) void {
     tray.connector.start();
+}
+
+/// Tray → Disconnect: forgets the pairing; a job running now finishes, then no more are taken.
+fn onDisconnect(_: *Widget, _: ?*anyopaque) callconv(.c) void {
+    if (!tray.connector.disconnect()) showResult("Disconnecting failed: the pairing could not be saved. See the log.");
+    refresh();
 }
 
 const GTK_RESPONSE_OK = -5;
@@ -382,7 +393,8 @@ pub fn run(t: *Tray) !void {
     for (&item_jobs) |*w| w.* = item(menu, "", null);
     separator(menu);
     item_connect = item(menu, "Connect to Direct360…", onConnect);
-    _ = item(menu, "Enter connection code…", onCode);
+    item_code = item(menu, "Enter connection code…", onCode);
+    item_disconnect = item(menu, "Disconnect", onDisconnect);
     _ = item(menu, "Open Direct360", onOpen);
     separator(menu);
     item_autostart = gtk.gtk_check_menu_item_new_with_label("Start when the computer starts");

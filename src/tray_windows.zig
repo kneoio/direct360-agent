@@ -1,6 +1,6 @@
 //! The Windows tray icon and its menu, as in direct360-helper 2.0.4: the lens mark (black on a light taskbar, white on
 //! a dark one, pulsing while a job runs), a tooltip with the status, and a menu with the version, the status, the
-//! running jobs, Connect to Direct360…, Enter connection code…, Open Direct360, Start when the computer starts, Show log and Quit.
+//! running jobs (drawn as information, not options), Connect to Direct360… and Enter connection code… (Disconnect once connected), Open Direct360, Start when the computer starts, Show log and Quit.
 //! Runs the window message loop on the calling thread until Quit.
 const std = @import("std");
 const builtin = @import("builtin");
@@ -23,6 +23,9 @@ const LPARAM = isize;
 const LRESULT = isize;
 
 const POINT = extern struct { x: i32, y: i32 };
+const SIZE = extern struct { cx: i32, cy: i32 };
+const MEASUREITEMSTRUCT = extern struct { ctl_type: u32, ctl_id: u32, item_id: u32, item_width: u32, item_height: u32, item_data: usize };
+const DRAWITEMSTRUCT = extern struct { ctl_type: u32, ctl_id: u32, item_id: u32, item_action: u32, item_state: u32, hwnd_item: ?*anyopaque, hdc: ?*anyopaque, rc_item: RECT, item_data: usize };
 const RECT = extern struct { left: i32, top: i32, right: i32, bottom: i32 };
 const LOGFONTW = extern struct {
     height: i32,
@@ -124,6 +127,19 @@ extern "user32" fn LoadCursorW(?HINSTANCE, usize) callconv(.winapi) ?*anyopaque;
 extern "user32" fn AdjustWindowRectEx(*RECT, u32, i32, u32) callconv(.winapi) i32;
 extern "user32" fn SystemParametersInfoW(u32, u32, ?*anyopaque, u32) callconv(.winapi) i32;
 extern "gdi32" fn CreateFontIndirectW(*const LOGFONTW) callconv(.winapi) ?*anyopaque;
+extern "user32" fn GetDC(?HWND) callconv(.winapi) ?*anyopaque;
+extern "user32" fn ReleaseDC(?HWND, ?*anyopaque) callconv(.winapi) i32;
+extern "user32" fn GetSysColor(i32) callconv(.winapi) u32;
+extern "user32" fn DrawIconEx(?*anyopaque, i32, i32, ?HICON, i32, i32, u32, ?*anyopaque, u32) callconv(.winapi) i32;
+extern "gdi32" fn SelectObject(?*anyopaque, ?*anyopaque) callconv(.winapi) ?*anyopaque;
+extern "gdi32" fn DeleteObject(?*anyopaque) callconv(.winapi) i32;
+extern "gdi32" fn GetStockObject(i32) callconv(.winapi) ?*anyopaque;
+extern "gdi32" fn CreateSolidBrush(u32) callconv(.winapi) ?*anyopaque;
+extern "gdi32" fn Ellipse(?*anyopaque, i32, i32, i32, i32) callconv(.winapi) i32;
+extern "gdi32" fn SetTextColor(?*anyopaque, u32) callconv(.winapi) u32;
+extern "gdi32" fn SetBkMode(?*anyopaque, i32) callconv(.winapi) i32;
+extern "gdi32" fn TextOutW(?*anyopaque, i32, i32, [*]const u16, i32) callconv(.winapi) i32;
+extern "gdi32" fn GetTextExtentPoint32W(?*anyopaque, [*]const u16, i32, *SIZE) callconv(.winapi) i32;
 extern "advapi32" fn RegGetValueW(hkey: usize, sub: [*:0]const u16, value: [*:0]const u16, flags: u32, type_: ?*u32, data: ?*anyopaque, len: ?*u32) callconv(.winapi) i32;
 extern "advapi32" fn RegSetKeyValueW(hkey: usize, sub: [*:0]const u16, value: [*:0]const u16, type_: u32, data: ?*const anyopaque, len: u32) callconv(.winapi) i32;
 extern "advapi32" fn RegDeleteKeyValueW(hkey: usize, sub: [*:0]const u16, value: [*:0]const u16) callconv(.winapi) i32;
@@ -148,6 +164,16 @@ const MF_STRING = 0x0;
 const MF_GRAYED = 0x1;
 const MF_CHECKED = 0x8;
 const MF_SEPARATOR = 0x800;
+const MF_OWNERDRAW = 0x100;
+const WM_DRAWITEM = 0x002B;
+const WM_MEASUREITEM = 0x002C;
+const ODT_MENU = 1;
+const ODA_DRAWENTIRE = 0x1;
+const COLOR_MENUTEXT = 7;
+const COLOR_GRAYTEXT = 17;
+const TRANSPARENT = 1;
+const NULL_PEN = 8;
+const DI_NORMAL = 3;
 const TPM_RIGHTBUTTON = 0x2;
 const TPM_BOTTOMALIGN = 0x20;
 const TPM_RETURNCMD = 0x100;
@@ -170,6 +196,11 @@ const ID_AUTOSTART = 3;
 const ID_LOG = 4;
 const ID_QUIT = 5;
 const ID_CODE = 6;
+const ID_DISCONNECT = 7;
+/// The menu's first lines, drawn by the agent (owner-draw) so they read as information, not as options.
+const ID_TITLE = 20;
+const ID_STATUS = 21;
+const ID_JOB = 22; // one per running job: ID_JOB + slot
 
 const WM_CLOSE = 0x0010;
 const WM_SETFONT = 0x0030;
@@ -292,24 +323,128 @@ fn add(menu: HMENU, flags: u32, id: usize, text: []const u8) void {
     _ = AppendMenuW(menu, flags, id, wide(&buf, text).ptr);
 }
 
+/// The header lines of the open menu: the title (bold, with the app icon), the status (a coloured dot) and the running
+/// jobs, in the menu's text colour. They are greyed items, so they cannot be clicked, but drawn here, so they do not
+/// look like options that are switched off.
+const HeadLine = struct { text: [120]u16 = undefined, len: usize = 0 };
+var head: [2 + jobs.slots]HeadLine = @splat(.{});
+var head_dot: u32 = 0;
+var font_normal: ?*anyopaque = null;
+var font_bold: ?*anyopaque = null;
+var app_icon: ?HICON = null;
+
+fn rgb(r: u8, g: u8, b: u8) u32 {
+    return @as(u32, r) | (@as(u32, g) << 8) | (@as(u32, b) << 16);
+}
+
+/// The status dot: green ready, blue working, amber starting, grey not connected, red when something is wrong.
+fn statusColor() u32 {
+    return switch (tray.session.snapshot(tray.io).status) {
+        .ready => if (busy()) rgb(0x1E, 0x88, 0xE5) else rgb(0x2E, 0xA0, 0x43),
+        .starting => rgb(0xF5, 0xA6, 0x23),
+        .unpaired => rgb(0x9E, 0x9E, 0x9E),
+        .unreachable_server, .outdated, .stopped => rgb(0xE5, 0x39, 0x35),
+    };
+}
+
+fn setHead(i: usize, text: []const u8) void {
+    const n = std.unicode.utf8ToUtf16Le(&head[i].text, text[0..@min(text.len, head[i].text.len)]) catch 0;
+    head[i].len = n;
+}
+
+/// The menu font, and a bold one for the title.
+fn menuFonts() void {
+    if (font_normal != null) return;
+    var m: NONCLIENTMETRICSW = .{};
+    if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, @sizeOf(NONCLIENTMETRICSW), &m, 0) == 0) return;
+    font_normal = CreateFontIndirectW(&m.menu_font);
+    var bold = m.menu_font;
+    bold.weight = 700;
+    font_bold = CreateFontIndirectW(&bold);
+}
+
+/// Line height, icon/dot column and padding, from the menu font's height.
+const HeadMetrics = struct { text_h: i32, col: i32, pad: i32 };
+fn headMetrics(hdc: ?*anyopaque) HeadMetrics {
+    var sz: SIZE = .{ .cx = 0, .cy = 16 };
+    const sample = L("Ag");
+    _ = GetTextExtentPoint32W(hdc, sample, sample.len, &sz);
+    return .{ .text_h = sz.cy, .col = sz.cy, .pad = @divTrunc(sz.cy, 2) };
+}
+
+fn measureHead(mi: *MEASUREITEMSTRUCT) void {
+    const i = mi.item_id -% ID_TITLE;
+    if (i >= head.len) return;
+    menuFonts();
+    const hdc = GetDC(null);
+    defer _ = ReleaseDC(null, hdc);
+    const old = SelectObject(hdc, if (i == 0) font_bold else font_normal);
+    defer _ = SelectObject(hdc, old);
+    const m = headMetrics(hdc);
+    var sz: SIZE = .{ .cx = 0, .cy = 0 };
+    _ = GetTextExtentPoint32W(hdc, &head[i].text, @intCast(head[i].len), &sz);
+    mi.item_width = @intCast(m.pad + m.col + m.pad + sz.cx + m.pad);
+    mi.item_height = @intCast(m.text_h + (if (i == 0) m.pad + @divTrunc(m.pad, 2) else m.pad));
+}
+
+fn drawHead(di: *DRAWITEMSTRUCT) void {
+    const i = di.item_id -% ID_TITLE;
+    if (i >= head.len) return;
+    // Drawn once when the menu opens; hover and focus changes leave these lines as they are.
+    if (di.item_action & ODA_DRAWENTIRE == 0) return;
+    menuFonts();
+    const hdc = di.hdc;
+    const rc = di.rc_item;
+    const old_font = SelectObject(hdc, if (i == 0) font_bold else font_normal);
+    defer _ = SelectObject(hdc, old_font);
+    const m = headMetrics(hdc);
+    const mid = @divTrunc(rc.top + rc.bottom, 2);
+    const col_x = rc.left + m.pad;
+    if (i == 0) {
+        if (app_icon == null) app_icon = @ptrCast(LoadImageW(GetModuleHandleW(null), 1, IMAGE_ICON, m.col, m.col, 0));
+        _ = DrawIconEx(hdc, col_x, mid - @divTrunc(m.col, 2), app_icon, m.col, m.col, 0, null, DI_NORMAL);
+    } else if (i == 1) {
+        const d = @max(6, @divTrunc(m.col * 5, 8));
+        const x = col_x + @divTrunc(m.col - d, 2);
+        const brush = CreateSolidBrush(head_dot);
+        defer _ = DeleteObject(brush);
+        const old_brush = SelectObject(hdc, brush);
+        const old_pen = SelectObject(hdc, GetStockObject(NULL_PEN));
+        _ = Ellipse(hdc, x, mid - @divTrunc(d, 2), x + d + 1, mid + @divTrunc(d, 2) + 1);
+        _ = SelectObject(hdc, old_pen);
+        _ = SelectObject(hdc, old_brush);
+    }
+    _ = SetBkMode(hdc, TRANSPARENT);
+    _ = SetTextColor(hdc, GetSysColor(if (i >= 2) COLOR_GRAYTEXT else COLOR_MENUTEXT));
+    _ = TextOutW(hdc, col_x + m.col + m.pad, mid - @divTrunc(m.text_h, 2), &head[i].text, @intCast(head[i].len));
+}
+
 fn showMenu(hwnd: HWND) void {
     const menu = CreatePopupMenu() orelse return;
     defer _ = DestroyMenu(menu);
     var buf: [200]u8 = undefined;
-    add(menu, MF_STRING | MF_GRAYED, 0, "Direct360 Helper Agent " ++ machine.version);
-    add(menu, MF_STRING | MF_GRAYED, 0, statusLine(&buf));
+    setHead(0, "Direct360 Helper Agent " ++ machine.version);
+    setHead(1, statusLine(&buf));
+    head_dot = statusColor();
+    _ = AppendMenuW(menu, MF_OWNERDRAW | MF_GRAYED, ID_TITLE, null);
+    _ = AppendMenuW(menu, MF_OWNERDRAW | MF_GRAYED, ID_STATUS, null);
     for (0..jobs.slots) |i| {
         const e = tray.table.snapshot(tray.io, i);
         if (!e.used) continue;
         var line: [96]u8 = undefined;
         const name = if (e.phase_len > 0) e.phase[0..e.phase_len] else e.task[0..e.task_len];
-        const text = if (e.progress) |p| std.fmt.bufPrint(&line, "     {s} {d:.0}%", .{ name, p }) catch name else std.fmt.bufPrint(&line, "     {s}", .{name}) catch name;
-        add(menu, MF_STRING | MF_GRAYED, 0, text);
+        const text = if (e.progress) |p| std.fmt.bufPrint(&line, "{s} {d:.0}%", .{ name, p }) catch name else name;
+        setHead(2 + i, text);
+        _ = AppendMenuW(menu, MF_OWNERDRAW | MF_GRAYED, ID_JOB + i, null);
     }
     _ = AppendMenuW(menu, MF_SEPARATOR, 0, null);
-    const unpaired = tray.session.snapshot(tray.io).status == .unpaired;
-    add(menu, MF_STRING, ID_CONNECT, if (unpaired) "Connect to Direct360…" else "Connect again…");
-    add(menu, MF_STRING, ID_CODE, "Enter connection code…");
+    // Connected: Disconnect only; not connected: the two ways to connect.
+    if (tray.session.snapshot(tray.io).status == .unpaired) {
+        add(menu, MF_STRING, ID_CONNECT, "Connect to Direct360…");
+        add(menu, MF_STRING, ID_CODE, "Enter connection code…");
+    } else {
+        add(menu, MF_STRING, ID_DISCONNECT, "Disconnect");
+    }
     add(menu, MF_STRING, ID_OPEN, "Open Direct360");
     _ = AppendMenuW(menu, MF_SEPARATOR, 0, null);
     add(menu, MF_STRING | (if (autostart()) @as(u32, MF_CHECKED) else 0), ID_AUTOSTART, "Start when the computer starts");
@@ -325,6 +460,7 @@ fn showMenu(hwnd: HWND) void {
     switch (cmd) {
         ID_CONNECT => tray.connector.start(),
         ID_CODE => enterCode(),
+        ID_DISCONNECT => disconnect(),
         ID_OPEN => {
             var web_buf: [300]u8 = undefined;
             var url_buf: [320]u8 = undefined;
@@ -434,6 +570,21 @@ fn message(flags: u32, text: []const u8) void {
     _ = MessageBoxW(null, wide(&buf, text).ptr, L("Direct360 Helper Agent"), flags | MB_SETFOREGROUND | MB_TOPMOST);
 }
 
+const MB_OKCANCEL = 0x1;
+const MB_ICONWARNING = 0x30;
+
+/// Tray → Disconnect; while a job runs, asks first (it finishes, then no more come).
+fn disconnect() void {
+    if (busy()) {
+        var buf: [300]u16 = undefined;
+        const ask = "Disconnect from Direct360? The job running now finishes, then this computer takes no more jobs until you connect again.";
+        if (MessageBoxW(null, wide(&buf, ask).ptr, L("Direct360 Helper Agent"), MB_OKCANCEL | MB_ICONWARNING | MB_SETFOREGROUND | MB_TOPMOST) != IDOK) return;
+    }
+    if (!tray.connector.disconnect()) message(MB_ICONERROR, "Disconnecting failed: the pairing could not be saved. See the log.");
+    last_tip = @splat(0);
+    notify(NIM_MODIFY);
+}
+
 /// Tray → Enter connection code…: asks for the code and pairs with it on another thread; the result is shown either way.
 fn enterCode() void {
     if (code_window) |w| {
@@ -470,6 +621,18 @@ fn wndProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) callconv(.winap
             const event: u32 = @intCast(lparam & 0xFFFF);
             if (event == WM_RBUTTONUP or event == WM_LBUTTONUP) showMenu(hwnd);
             return 0;
+        },
+        WM_MEASUREITEM => {
+            const mi: *MEASUREITEMSTRUCT = @ptrFromInt(@as(usize, @bitCast(lparam)));
+            if (mi.ctl_type != ODT_MENU) return DefWindowProcW(hwnd, msg, wparam, lparam);
+            measureHead(mi);
+            return 1;
+        },
+        WM_DRAWITEM => {
+            const di: *DRAWITEMSTRUCT = @ptrFromInt(@as(usize, @bitCast(lparam)));
+            if (di.ctl_type != ODT_MENU) return DefWindowProcW(hwnd, msg, wparam, lparam);
+            drawHead(di);
+            return 1;
         },
         WM_TIMER => {
             if (busy()) dim = !dim else dim = false;
