@@ -201,7 +201,7 @@ pub fn main(init: std.process.Init) !void {
     else if (machine.output(arena, io, &.{ ffprobe, "-hide_banner", "-version" }) == null)
         try std.fmt.allocPrint(arena, "ffprobe was not found ({s}). It comes with ffmpeg; pass --ffmpeg <folder> if it is elsewhere.", .{ffprobe})
     else if (render_js == null)
-        "worker/render.js was not found. Pass --worker <path to render.js> (it is in direct360-server's pipeline/)."
+        "worker/render.js was not found. Pass --worker <path to render.js> (it is in kneoio/direct360-pipeline)."
     else if (machine.output(arena, io, &.{ node, "--version" }) == null)
         try std.fmt.allocPrint(arena, "Node.js was not found ({s}); the job pipeline still runs on Node. Install Node 20+ or pass --node <path>.", .{node})
     else

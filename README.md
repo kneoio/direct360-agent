@@ -11,7 +11,7 @@ process tree when the server cancels it, and reports the result. ffmpeg does the
 ## Status
 
 Windows and Linux (Ubuntu): a tray app with an installer (`.exe`, `.deb`), connecting in the browser like
-direct360-helper 2.0.4. Jobs run the job pipeline from direct360-server's `pipeline/` (`worker/render.js`) on Node,
+direct360-helper 2.0.4. Jobs run the job pipeline from [kneoio/direct360-pipeline](https://github.com/kneoio/direct360-pipeline) (`worker/render.js`) on Node,
 bundled; porting it to Zig is the next stage. Not yet: self-update, a macOS package.
 
 ## Windows
@@ -39,13 +39,14 @@ installed on Ubuntu and smoke-tested there, the tray on a virtual display.
 
 ## Run from source
 
-Needs ffmpeg/ffprobe, Node 20+ and the job pipeline: `pipeline/` in a direct360-server checkout (`worker/render.js` and what it imports).
+Needs ffmpeg/ffprobe, Node 20+ and the job pipeline: a checkout of
+[kneoio/direct360-pipeline](https://github.com/kneoio/direct360-pipeline) (`worker/render.js` and what it imports).
 
 ```
-direct360-helper-agent pair ABCD-EFGH --worker ../direct360-server/pipeline/worker/render.js   # once, code from Settings → Processing
-direct360-helper-agent --worker ../direct360-server/pipeline/worker/render.js                  # keep it running
-direct360-helper-agent info --worker ../direct360-server/pipeline/worker/render.js             # what this computer reports
-direct360-helper-agent log                                                            # the last lines of the log
+direct360-helper-agent pair ABCD-EFGH --worker ../direct360-pipeline/worker/render.js   # once, code from Settings → Processing
+direct360-helper-agent --worker ../direct360-pipeline/worker/render.js                  # keep it running
+direct360-helper-agent info --worker ../direct360-pipeline/worker/render.js             # what this computer reports
+direct360-helper-agent log                                                       # the last lines of the log
 ```
 
 On Windows and on a Linux desktop, `--headless` runs it in the terminal instead of the tray; `direct360-helper-agent connect`
@@ -68,11 +69,11 @@ zig build -Dtarget=x86_64-linux-gnu.2.31 -Doptimize=ReleaseSmall
 ```
 
 A release, always the same way: `build/release.sh` (tests, the Linux and Windows builds, both packages with
-direct360-server's `pipeline/`, the `.deb`, and the Windows installer with NSIS's `makensis`, native on Linux:
+the pipeline from a direct360-pipeline checkout, the `.deb`, and the Windows installer with NSIS's `makensis`, native on Linux:
 `sudo apt install nsis`); `build/release.sh --publish` then creates the GitHub Release `v<version>` with `Direct360AgentSetup.exe` and
 `direct360-agent_amd64.deb`. Settings: `ZIG`, `PIPELINE` (see the script).
 
-By hand: `node build/stage.mjs --target windows-x64|linux-x64 --agent <binary> --pipeline <direct360-server>/pipeline`,
+By hand: `node build/stage.mjs --target windows-x64|linux-x64 --agent <binary> --pipeline <direct360-pipeline checkout>`,
 then `makensis -DSOURCEDIR=dist/windows-x64 -DVERSION=<version> -DOUTDIR=dist build/windows/installer.nsi` or `build/linux/deb.sh dist/linux-x64 <version> dist`.
 
 ## Licence

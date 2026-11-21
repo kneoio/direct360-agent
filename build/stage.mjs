@@ -5,7 +5,7 @@
  *
  *   direct360-helper-agent(.exe) the agent (built before this runs, passed as --agent)
  *   direct360-agent(.cmd)      the old name: a .cmd (Windows) or symlink (Linux) that runs direct360-helper-agent
- *   worker/ src/ lib/          the job pipeline from direct360-server's pipeline/ (worker/render.js and what it imports),
+ *   worker/ src/ lib/          the job pipeline from kneoio/direct360-pipeline (worker/render.js and what it imports),
  *   package.json               its fonts and watermark; the pipeline's package.json makes Node read them as ES modules
  *   worker/gpmf/gpmf2json      GoPro telemetry reader, built here from the pipeline's worker/gpmf
  *   node/                      Node.js, which still runs the pipeline
@@ -13,7 +13,7 @@
  *   aria2/                     Windows only: aria2c, which downloads sources over several connections (GPL-2.0;
  *                              COPYING and SOURCE.txt beside it). The Ubuntu package depends on apt's aria2 instead.
  *
- *   node build/stage.mjs --target windows-x64|linux-x64 --agent <agent binary> --pipeline <direct360-server>/pipeline
+ *   node build/stage.mjs --target windows-x64|linux-x64 --agent <agent binary> --pipeline <direct360-pipeline checkout>
  *
  * Writes dist/<target>/ and dist/direct360-agent-<version>-<target>.zip (Windows) or .tar.gz (Linux).
  */
@@ -31,7 +31,7 @@ const arg = (name) => {
   return process.argv[at + 1];
 };
 const TARGET = arg('target');
-// The job pipeline: direct360-server's pipeline/ folder (one copy, shared with the server and the cloud worker).
+// The job pipeline: a checkout of the public kneoio/direct360-pipeline (one copy, shared with the server and the cloud worker).
 const PIPELINE = path.resolve(arg('pipeline'));
 const AGENT = path.resolve(arg('agent'));
 const VERSION = fs.readFileSync(path.join(ROOT, 'build.zig.zon'), 'utf8').match(/\.version = "([^"]+)"/)[1];
