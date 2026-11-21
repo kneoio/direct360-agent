@@ -36,7 +36,8 @@ fi
 command -v makensis >/dev/null 2>&1 || fail "makensis is needed for the Windows installer (Ubuntu: sudo apt install nsis)"
 PIPELINE=${PIPELINE:-$HOME/WebstormProjects/direct360-pipeline}
 [ -f "$PIPELINE/worker/render.js" ] || fail "no pipeline at $PIPELINE: set PIPELINE to a checkout of kneoio/direct360-pipeline"
-[ -z "$(git -C "$PIPELINE" status --porcelain)" ] || fail "$PIPELINE has local changes: the package must be built from a pushed commit"
+# autocrlf and fileMode as Windows' git has them, so a Windows checkout seen from WSL is not taken for changed.
+[ -z "$(git -C "$PIPELINE" -c core.autocrlf=true -c core.fileMode=false status --porcelain)" ] || fail "$PIPELINE has local changes: the package must be built from a pushed commit"
 pipeline_commit=$(git -C "$PIPELINE" rev-parse --short HEAD)
 version=$(sed -n 's/.*\.version = "\(.*\)".*/\1/p' build.zig.zon)
 [ -n "$version" ] || fail "no version in build.zig.zon"
