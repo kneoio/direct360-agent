@@ -181,6 +181,7 @@ function notices() {
     'Direct360 agent (MIT, LICENSE) bundles:',
     '- The Direct360 job pipeline (MIT): worker/, src/, lib/.',
     '- GoPro gpmf-parser (MIT or Apache-2.0): worker/gpmf/third_party/gpmf-parser/.',
+    '- Fonts in lib/fonts/, each with its licence beside it: DejaVu Sans Mono (Bitstream Vera licence) and Orbitron (SIL OFL 1.1).',
     '- Node.js (MIT and others): node/LICENSE.',
     '- ffmpeg/ffprobe (GPL): ffmpeg/LICENSE.txt and ffmpeg/SOURCE.txt.',
     ...(T.aria2 ? ['- aria2c (GPL-2.0): aria2/COPYING and aria2/SOURCE.txt.'] : []),
