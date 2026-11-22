@@ -352,7 +352,7 @@ fn rgb(r: u8, g: u8, b: u8) u32 {
 /// something is wrong.
 fn statusColor() u32 {
     return switch (tray.session.snapshot(tray.io).status) {
-        .ready => if (busy()) rgb(0x1E, 0x88, 0xE5) else rgb(0x00, 0xE0, 0x35),
+        .ready => if (busy()) rgb(0x1E, 0x88, 0xE5) else rgb(0x00, 0xFF, 0x3C),
         .starting => rgb(0xF5, 0xA6, 0x23),
         .unpaired => rgb(0x9E, 0x9E, 0x9E),
         .unreachable_server, .outdated, .stopped => rgb(0xE5, 0x39, 0x35),
@@ -420,8 +420,8 @@ fn drawHead(di: *DRAWITEMSTRUCT) void {
     _ = TextOutW(hdc, text_x, mid - @divTrunc(m.text_h, 2), &head[i].text, @intCast(head[i].len));
 }
 
-/// The status LED, as in the Direct360 web app: a short rounded bar with a soft glow, smooth at the edges, in an
-/// s×s square at (x, y). Drawn into a 32-bit bitmap pixel by pixel (4×4 samples per pixel) and blended onto the menu.
+/// The status LED, as in the Direct360 web app: a thin flat dash (the ▬ there) with a soft glow, smooth at the edges,
+/// in an s×s square at (x, y). Drawn into a 32-bit bitmap pixel by pixel (4×4 samples per pixel) and blended onto the menu.
 fn drawLed(hdc: ?*anyopaque, x: i32, y: i32, s: i32, color: u32) void {
     if (s <= 0 or s > 64) return;
     var bmi: BITMAPINFOHEADER = .{ .width = s, .height = -s };
@@ -430,9 +430,9 @@ fn drawLed(hdc: ?*anyopaque, x: i32, y: i32, s: i32, color: u32) void {
     defer _ = DeleteObject(bmp);
     const px: [*]u32 = @ptrCast(@alignCast(bits orelse return));
     const sf: f32 = @floatFromInt(s);
-    const r = sf * 0.17; // half the bar's height
-    const half = sf * 0.27; // half the bar's length, without its round ends
-    const glow = sf * 0.09;
+    const hh = sf * 0.09; // half the dash's height
+    const half = sf * 0.30; // half its length
+    const glow = sf * 0.10;
     const c = sf / 2;
     const cr: f32 = @floatFromInt(color & 0xFF);
     const cg: f32 = @floatFromInt((color >> 8) & 0xFF);
@@ -449,8 +449,12 @@ fn drawLed(hdc: ?*anyopaque, x: i32, y: i32, s: i32, color: u32) void {
                 while (sx < 4) : (sx += 1) {
                     const fx = @as(f32, @floatFromInt(col)) + (@as(f32, @floatFromInt(sx)) + 0.5) / 4 - c;
                     const fy = @as(f32, @floatFromInt(row)) + (@as(f32, @floatFromInt(sy)) + 0.5) / 4 - c;
-                    const dx = @max(@abs(fx) - half, 0);
-                    const d = @sqrt(dx * dx + fy * fy) - r; // distance to the bar's edge
+                    // Distance to the dash's edge (negative inside); square ends.
+                    const dx = @abs(fx) - half;
+                    const dy = @abs(fy) - hh;
+                    const ox = @max(dx, 0);
+                    const oy = @max(dy, 0);
+                    const d = if (dx <= 0 and dy <= 0) @max(dx, dy) else @sqrt(ox * ox + oy * oy);
                     // The glow fades out before the square's edges, so no box shows around it.
                     const edge = @min(c - @abs(fx), c - @abs(fy)) / (sf * 0.18);
                     if (d <= 0) inside += 1 else halo += @exp(-d / glow) * std.math.clamp(edge, 0, 1);
