@@ -1,6 +1,6 @@
 //! The Windows tray icon and its menu, as in direct360-helper 2.0.4: the lens mark (black on a light taskbar, white on
 //! a dark one, pulsing while a job runs), a tooltip with the status, and a menu with the version, the status, the
-//! running jobs (drawn as information, not options), Connect to Direct360… and Enter connection code… (Disconnect once connected), Open Direct360, Start when the computer starts, Show log and Quit.
+//! running jobs (drawn as information, not options: the name in bold, the status after an LED like the web app's), Connect to Direct360… and Enter connection code… (Disconnect once connected), Open Direct360, Start when the computer starts, Show log and Quit.
 //! Runs the window message loop on the calling thread until Quit.
 const std = @import("std");
 const builtin = @import("builtin");
@@ -24,6 +24,20 @@ const LRESULT = isize;
 
 const POINT = extern struct { x: i32, y: i32 };
 const SIZE = extern struct { cx: i32, cy: i32 };
+/// 32 bits per pixel, top-down when `height` is negative (BI_RGB, no colour table: enough for CreateDIBSection).
+const BITMAPINFOHEADER = extern struct {
+    size: u32 = @sizeOf(BITMAPINFOHEADER),
+    width: i32,
+    height: i32,
+    planes: u16 = 1,
+    bit_count: u16 = 32,
+    compression: u32 = 0,
+    size_image: u32 = 0,
+    x_ppm: i32 = 0,
+    y_ppm: i32 = 0,
+    clr_used: u32 = 0,
+    clr_important: u32 = 0,
+};
 const MEASUREITEMSTRUCT = extern struct { ctl_type: u32, ctl_id: u32, item_id: u32, item_width: u32, item_height: u32, item_data: usize };
 const DRAWITEMSTRUCT = extern struct { ctl_type: u32, ctl_id: u32, item_id: u32, item_action: u32, item_state: u32, hwnd_item: ?*anyopaque, hdc: ?*anyopaque, rc_item: RECT, item_data: usize };
 const RECT = extern struct { left: i32, top: i32, right: i32, bottom: i32 };
@@ -130,15 +144,15 @@ extern "gdi32" fn CreateFontIndirectW(*const LOGFONTW) callconv(.winapi) ?*anyop
 extern "user32" fn GetDC(?HWND) callconv(.winapi) ?*anyopaque;
 extern "user32" fn ReleaseDC(?HWND, ?*anyopaque) callconv(.winapi) i32;
 extern "user32" fn GetSysColor(i32) callconv(.winapi) u32;
-extern "user32" fn DrawIconEx(?*anyopaque, i32, i32, ?HICON, i32, i32, u32, ?*anyopaque, u32) callconv(.winapi) i32;
 extern "gdi32" fn SelectObject(?*anyopaque, ?*anyopaque) callconv(.winapi) ?*anyopaque;
 extern "gdi32" fn DeleteObject(?*anyopaque) callconv(.winapi) i32;
-extern "gdi32" fn GetStockObject(i32) callconv(.winapi) ?*anyopaque;
-extern "gdi32" fn CreateSolidBrush(u32) callconv(.winapi) ?*anyopaque;
-extern "gdi32" fn Ellipse(?*anyopaque, i32, i32, i32, i32) callconv(.winapi) i32;
 extern "gdi32" fn SetTextColor(?*anyopaque, u32) callconv(.winapi) u32;
 extern "gdi32" fn SetBkMode(?*anyopaque, i32) callconv(.winapi) i32;
 extern "gdi32" fn TextOutW(?*anyopaque, i32, i32, [*]const u16, i32) callconv(.winapi) i32;
+extern "gdi32" fn CreateDIBSection(?*anyopaque, *const BITMAPINFOHEADER, u32, *?*anyopaque, ?*anyopaque, u32) callconv(.winapi) ?*anyopaque;
+extern "gdi32" fn CreateCompatibleDC(?*anyopaque) callconv(.winapi) ?*anyopaque;
+extern "gdi32" fn DeleteDC(?*anyopaque) callconv(.winapi) i32;
+extern "msimg32" fn AlphaBlend(?*anyopaque, i32, i32, i32, i32, ?*anyopaque, i32, i32, i32, i32, u32) callconv(.winapi) i32;
 extern "gdi32" fn GetTextExtentPoint32W(?*anyopaque, [*]const u16, i32, *SIZE) callconv(.winapi) i32;
 extern "advapi32" fn RegGetValueW(hkey: usize, sub: [*:0]const u16, value: [*:0]const u16, flags: u32, type_: ?*u32, data: ?*anyopaque, len: ?*u32) callconv(.winapi) i32;
 extern "advapi32" fn RegSetKeyValueW(hkey: usize, sub: [*:0]const u16, value: [*:0]const u16, type_: u32, data: ?*const anyopaque, len: u32) callconv(.winapi) i32;
@@ -172,8 +186,6 @@ const ODA_DRAWENTIRE = 0x1;
 const COLOR_MENUTEXT = 7;
 const COLOR_GRAYTEXT = 17;
 const TRANSPARENT = 1;
-const NULL_PEN = 8;
-const DI_NORMAL = 3;
 const TPM_RIGHTBUTTON = 0x2;
 const TPM_BOTTOMALIGN = 0x20;
 const TPM_RETURNCMD = 0x100;
@@ -323,24 +335,24 @@ fn add(menu: HMENU, flags: u32, id: usize, text: []const u8) void {
     _ = AppendMenuW(menu, flags, id, wide(&buf, text).ptr);
 }
 
-/// The header lines of the open menu: the title (bold, with the app icon), the status (a coloured dot) and the running
-/// jobs, in the menu's text colour. They are greyed items, so they cannot be clicked, but drawn here, so they do not
-/// look like options that are switched off.
+/// The header lines of the open menu: the name (bold), the status (after an LED) and the running jobs, in the menu's
+/// text colour. They are greyed items, so they cannot be clicked, but drawn here, so they do not look like options
+/// that are switched off.
 const HeadLine = struct { text: [120]u16 = undefined, len: usize = 0 };
 var head: [2 + jobs.slots]HeadLine = @splat(.{});
 var head_dot: u32 = 0;
 var font_normal: ?*anyopaque = null;
 var font_bold: ?*anyopaque = null;
-var app_icon: ?HICON = null;
 
 fn rgb(r: u8, g: u8, b: u8) u32 {
     return @as(u32, r) | (@as(u32, g) << 8) | (@as(u32, b) << 16);
 }
 
-/// The status dot: green ready, blue working, amber starting, grey not connected, red when something is wrong.
+/// The status LED: green ready (the web app's LED green), blue working, amber starting, grey not connected, red when
+/// something is wrong.
 fn statusColor() u32 {
     return switch (tray.session.snapshot(tray.io).status) {
-        .ready => if (busy()) rgb(0x1E, 0x88, 0xE5) else rgb(0x2E, 0xA0, 0x43),
+        .ready => if (busy()) rgb(0x1E, 0x88, 0xE5) else rgb(0x00, 0xE0, 0x35),
         .starting => rgb(0xF5, 0xA6, 0x23),
         .unpaired => rgb(0x9E, 0x9E, 0x9E),
         .unreachable_server, .outdated, .stopped => rgb(0xE5, 0x39, 0x35),
@@ -383,7 +395,7 @@ fn measureHead(mi: *MEASUREITEMSTRUCT) void {
     const m = headMetrics(hdc);
     var sz: SIZE = .{ .cx = 0, .cy = 0 };
     _ = GetTextExtentPoint32W(hdc, &head[i].text, @intCast(head[i].len), &sz);
-    mi.item_width = @intCast(m.pad + m.col + m.pad + sz.cx + m.pad);
+    mi.item_width = @intCast(if (i == 0) m.pad + sz.cx + m.pad * 2 else m.pad + m.col + m.pad + sz.cx + m.pad);
     mi.item_height = @intCast(m.text_h + (if (i == 0) m.pad + @divTrunc(m.pad, 2) else m.pad));
 }
 
@@ -400,23 +412,64 @@ fn drawHead(di: *DRAWITEMSTRUCT) void {
     const m = headMetrics(hdc);
     const mid = @divTrunc(rc.top + rc.bottom, 2);
     const col_x = rc.left + m.pad;
-    if (i == 0) {
-        if (app_icon == null) app_icon = @ptrCast(LoadImageW(GetModuleHandleW(null), 1, IMAGE_ICON, m.col, m.col, 0));
-        _ = DrawIconEx(hdc, col_x, mid - @divTrunc(m.col, 2), app_icon, m.col, m.col, 0, null, DI_NORMAL);
-    } else if (i == 1) {
-        const d = @max(6, @divTrunc(m.col * 5, 8));
-        const x = col_x + @divTrunc(m.col - d, 2);
-        const brush = CreateSolidBrush(head_dot);
-        defer _ = DeleteObject(brush);
-        const old_brush = SelectObject(hdc, brush);
-        const old_pen = SelectObject(hdc, GetStockObject(NULL_PEN));
-        _ = Ellipse(hdc, x, mid - @divTrunc(d, 2), x + d + 1, mid + @divTrunc(d, 2) + 1);
-        _ = SelectObject(hdc, old_pen);
-        _ = SelectObject(hdc, old_brush);
-    }
+    if (i == 1) drawLed(hdc, col_x, mid - @divTrunc(m.col, 2), m.col, head_dot);
     _ = SetBkMode(hdc, TRANSPARENT);
     _ = SetTextColor(hdc, GetSysColor(if (i >= 2) COLOR_GRAYTEXT else COLOR_MENUTEXT));
-    _ = TextOutW(hdc, col_x + m.col + m.pad, mid - @divTrunc(m.text_h, 2), &head[i].text, @intCast(head[i].len));
+    // The name starts at the left edge; the status and the jobs after the LED's column.
+    const text_x = if (i == 0) col_x else col_x + m.col + m.pad;
+    _ = TextOutW(hdc, text_x, mid - @divTrunc(m.text_h, 2), &head[i].text, @intCast(head[i].len));
+}
+
+/// The status LED, as in the Direct360 web app: a short rounded bar with a soft glow, smooth at the edges, in an
+/// s×s square at (x, y). Drawn into a 32-bit bitmap pixel by pixel (4×4 samples per pixel) and blended onto the menu.
+fn drawLed(hdc: ?*anyopaque, x: i32, y: i32, s: i32, color: u32) void {
+    if (s <= 0 or s > 64) return;
+    var bmi: BITMAPINFOHEADER = .{ .width = s, .height = -s };
+    var bits: ?*anyopaque = null;
+    const bmp = CreateDIBSection(hdc, &bmi, 0, &bits, null, 0) orelse return;
+    defer _ = DeleteObject(bmp);
+    const px: [*]u32 = @ptrCast(@alignCast(bits orelse return));
+    const sf: f32 = @floatFromInt(s);
+    const r = sf * 0.17; // half the bar's height
+    const half = sf * 0.27; // half the bar's length, without its round ends
+    const glow = sf * 0.09;
+    const c = sf / 2;
+    const cr: f32 = @floatFromInt(color & 0xFF);
+    const cg: f32 = @floatFromInt((color >> 8) & 0xFF);
+    const cb: f32 = @floatFromInt((color >> 16) & 0xFF);
+    var row: i32 = 0;
+    while (row < s) : (row += 1) {
+        var col: i32 = 0;
+        while (col < s) : (col += 1) {
+            var inside: f32 = 0;
+            var halo: f32 = 0;
+            var sy: u32 = 0;
+            while (sy < 4) : (sy += 1) {
+                var sx: u32 = 0;
+                while (sx < 4) : (sx += 1) {
+                    const fx = @as(f32, @floatFromInt(col)) + (@as(f32, @floatFromInt(sx)) + 0.5) / 4 - c;
+                    const fy = @as(f32, @floatFromInt(row)) + (@as(f32, @floatFromInt(sy)) + 0.5) / 4 - c;
+                    const dx = @max(@abs(fx) - half, 0);
+                    const d = @sqrt(dx * dx + fy * fy) - r; // distance to the bar's edge
+                    // The glow fades out before the square's edges, so no box shows around it.
+                    const edge = @min(c - @abs(fx), c - @abs(fy)) / (sf * 0.18);
+                    if (d <= 0) inside += 1 else halo += @exp(-d / glow) * std.math.clamp(edge, 0, 1);
+                }
+            }
+            const cov = inside / 16;
+            const a = cov + (1 - cov) * (halo / 16) * 0.55;
+            const ai: u32 = @intFromFloat(@min(255, a * 255));
+            const pr: u32 = @intFromFloat(@min(255, cr * a));
+            const pg: u32 = @intFromFloat(@min(255, cg * a));
+            const pb: u32 = @intFromFloat(@min(255, cb * a));
+            px[@intCast(row * s + col)] = (ai << 24) | (pr << 16) | (pg << 8) | pb;
+        }
+    }
+    const mem = CreateCompatibleDC(hdc) orelse return;
+    defer _ = DeleteDC(mem);
+    const old = SelectObject(mem, bmp);
+    defer _ = SelectObject(mem, old);
+    _ = AlphaBlend(hdc, x, y, s, s, mem, 0, 0, s, s, 0x01FF0000); // AC_SRC_OVER, constant 255, AC_SRC_ALPHA
 }
 
 fn showMenu(hwnd: HWND) void {
