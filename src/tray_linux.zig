@@ -1,5 +1,5 @@
 //! The Linux tray icon and its menu, as on Windows: the lens mark (white, for the dark top bar of Ubuntu and most
-//! desktops; pulsing while a job runs) and a menu with the version, the status, the running jobs, Connect to
+//! desktops; pulsing while a job runs) and a menu with the version, the status (after an LED like the web app's), the running jobs, Connect to
 //! Direct360… and Enter connection code… (Disconnect once connected), Open Direct360, Start when the computer starts, Show log and Quit. It is an AppIndicator
 //! (libayatana-appindicator3 with GTK 3), loaded when the tray starts, so the agent itself still runs without them
 //! (--headless). Runs the GTK main loop on the calling thread until Quit.
@@ -30,6 +30,7 @@ pub const Tray = struct {
 
 const Widget = opaque {};
 const Indicator = opaque {};
+const Pixbuf = opaque {};
 const Callback = *const fn (*Widget, ?*anyopaque) callconv(.c) void;
 const SourceFn = *const fn (?*anyopaque) callconv(.c) c_int;
 const FdFn = *const fn (c_int, c_uint, ?*anyopaque) callconv(.c) c_int;
@@ -42,11 +43,19 @@ const Lib = struct {
     gtk_menu_new: *const fn () callconv(.c) *Widget,
     gtk_menu_item_new_with_label: *const fn ([*:0]const u8) callconv(.c) *Widget,
     gtk_check_menu_item_new_with_label: *const fn ([*:0]const u8) callconv(.c) *Widget,
+    gtk_image_menu_item_new_with_label: *const fn ([*:0]const u8) callconv(.c) *Widget,
+    gtk_image_menu_item_set_image: *const fn (*Widget, *Widget) callconv(.c) void,
+    gtk_image_menu_item_set_always_show_image: *const fn (*Widget, c_int) callconv(.c) void,
+    gtk_image_new_from_pixbuf: *const fn (*Pixbuf) callconv(.c) *Widget,
+    gtk_image_set_from_pixbuf: *const fn (*Widget, *Pixbuf) callconv(.c) void,
+    gdk_pixbuf_new: *const fn (c_int, c_int, c_int, c_int, c_int) callconv(.c) ?*Pixbuf,
+    gdk_pixbuf_get_pixels: *const fn (*Pixbuf) callconv(.c) [*]u8,
+    gdk_pixbuf_get_rowstride: *const fn (*Pixbuf) callconv(.c) c_int,
+    g_object_unref: *const fn (*anyopaque) callconv(.c) void,
     gtk_separator_menu_item_new: *const fn () callconv(.c) *Widget,
     gtk_menu_shell_append: *const fn (*Widget, *Widget) callconv(.c) void,
     gtk_widget_show_all: *const fn (*Widget) callconv(.c) void,
     gtk_widget_set_visible: *const fn (*Widget, c_int) callconv(.c) void,
-    gtk_widget_set_sensitive: *const fn (*Widget, c_int) callconv(.c) void,
     gtk_menu_item_set_label: *const fn (*Widget, [*:0]const u8) callconv(.c) void,
     gtk_check_menu_item_set_active: *const fn (*Widget, c_int) callconv(.c) void,
     gtk_check_menu_item_get_active: *const fn (*Widget) callconv(.c) c_int,
@@ -78,7 +87,7 @@ const Lib = struct {
     app_indicator_set_title: *const fn (*Indicator, [*:0]const u8) callconv(.c) void,
 };
 
-const libraries = [_][:0]const u8{ "libayatana-appindicator3.so.1", "libgtk-3.so.0", "libgobject-2.0.so.0", "libglib-2.0.so.0" };
+const libraries = [_][:0]const u8{ "libayatana-appindicator3.so.1", "libgtk-3.so.0", "libgdk_pixbuf-2.0.so.0", "libgobject-2.0.so.0", "libglib-2.0.so.0" };
 
 fn load() !Lib {
     var handles: [libraries.len]std.DynLib = undefined;
@@ -111,6 +120,8 @@ var tray: *Tray = undefined;
 var gtk: Lib = undefined;
 var indicator: *Indicator = undefined;
 var item_status: *Widget = undefined;
+var led_image: *Widget = undefined;
+var last_led: ?u32 = null;
 var item_jobs: [jobs.slots]*Widget = undefined;
 var item_connect: *Widget = undefined;
 var item_code: *Widget = undefined;
@@ -139,6 +150,70 @@ fn statusLine(buf: []u8) []const u8 {
     };
 }
 
+/// The status LED's colour, as on Windows (0xRRGGBB): green ready (the web app's LED green), blue working, amber
+/// starting, grey not connected, red when something is wrong.
+fn statusColor() u32 {
+    return switch (tray.session.snapshot(tray.io).status) {
+        .ready => if (busy()) 0x1E88E5 else 0x00FF3C,
+        .starting => 0xF5A623,
+        .unpaired => 0x9E9E9E,
+        .unreachable_server, .outdated, .stopped => 0xE53935,
+    };
+}
+
+const LED_PX = 32;
+
+/// The status LED, as on Windows and in the Direct360 web app: a thin flat dash with square ends and a soft glow,
+/// smooth at the edges (4×4 samples per pixel), in a LED_PX square with transparency.
+fn ledPixbuf(color: u32) ?*Pixbuf {
+    const GDK_COLORSPACE_RGB = 0;
+    const pb = gtk.gdk_pixbuf_new(GDK_COLORSPACE_RGB, 1, 8, LED_PX, LED_PX) orelse return null;
+    const px = gtk.gdk_pixbuf_get_pixels(pb);
+    const stride: usize = @intCast(gtk.gdk_pixbuf_get_rowstride(pb));
+    const sf: f32 = LED_PX;
+    const hh = sf * 0.09; // half the dash's height
+    const half = sf * 0.30; // half its length
+    const glow = sf * 0.10;
+    const c = sf / 2;
+    for (0..LED_PX) |row| {
+        for (0..LED_PX) |col| {
+            var inside: f32 = 0;
+            var halo: f32 = 0;
+            for (0..4) |sy| {
+                for (0..4) |sx| {
+                    const fx = @as(f32, @floatFromInt(col)) + (@as(f32, @floatFromInt(sx)) + 0.5) / 4 - c;
+                    const fy = @as(f32, @floatFromInt(row)) + (@as(f32, @floatFromInt(sy)) + 0.5) / 4 - c;
+                    // Distance to the dash's edge (negative inside); square ends.
+                    const dx = @abs(fx) - half;
+                    const dy = @abs(fy) - hh;
+                    const ox = @max(dx, 0);
+                    const oy = @max(dy, 0);
+                    const d = if (dx <= 0 and dy <= 0) @max(dx, dy) else @sqrt(ox * ox + oy * oy);
+                    // The glow fades out before the square's edges, so no box shows around it.
+                    const edge = @min(c - @abs(fx), c - @abs(fy)) / (sf * 0.18);
+                    if (d <= 0) inside += 1 else halo += @exp(-d / glow) * std.math.clamp(edge, 0, 1);
+                }
+            }
+            const cov = inside / 16;
+            const a = cov + (1 - cov) * (halo / 16) * 0.55;
+            const p = px + row * stride + col * 4;
+            p[0] = @truncate(color >> 16);
+            p[1] = @truncate(color >> 8);
+            p[2] = @truncate(color);
+            p[3] = @intFromFloat(@min(255, a * 255));
+        }
+    }
+    return pb;
+}
+
+fn setLed(color: u32) void {
+    if (last_led == color) return;
+    const pb = ledPixbuf(color) orelse return;
+    defer gtk.g_object_unref(pb);
+    gtk.gtk_image_set_from_pixbuf(led_image, pb);
+    last_led = color;
+}
+
 fn setLabel(w: *Widget, text: []const u8) void {
     var buf: [300]u8 = undefined;
     const z = std.fmt.bufPrintSentinel(&buf, "{s}", .{text}, 0) catch return;
@@ -155,6 +230,7 @@ fn refresh() void {
         @memcpy(last_status[0..n], status[0..n]);
         last_status_len = n;
     }
+    setLed(statusColor());
     const unpaired = tray.session.snapshot(tray.io).status == .unpaired;
     if (last_unpaired != unpaired) {
         // Connected: Disconnect only; not connected: the two ways to connect.
@@ -359,9 +435,36 @@ fn writeIcons(buf: []u8) ![:0]const u8 {
     return dir;
 }
 
+/// `text` in Unicode's sans-serif bold letters and digits (other characters as they are). GNOME's tray menu shows
+/// plain text only, so this is how the name line is bold, as on Windows.
+fn bold(comptime text: []const u8) [:0]const u8 {
+    comptime {
+        var out: []const u8 = "";
+        for (text) |ch| {
+            const cp: ?u21 = switch (ch) {
+                'A'...'Z' => 0x1D5D4 + @as(u21, ch - 'A'),
+                'a'...'z' => 0x1D5EE + @as(u21, ch - 'a'),
+                '0'...'9' => 0x1D7EC + @as(u21, ch - '0'),
+                else => null,
+            };
+            if (cp) |c| {
+                var buf: [4]u8 = undefined;
+                const n = std.unicode.utf8Encode(c, &buf) catch unreachable;
+                out = out ++ buf[0..n];
+            } else out = out ++ .{ch};
+        }
+        const final = out[0..out.len].* ++ .{0};
+        return final[0..out.len :0];
+    }
+}
+
+/// The version, status and job lines do nothing when clicked. They stay enabled, so they are drawn in the normal
+/// text colour: GNOME draws a disabled line grey, and the status would look switched off.
+fn onInfo(_: *Widget, _: ?*anyopaque) callconv(.c) void {}
+
 fn item(menu: *Widget, label: [*:0]const u8, on_activate: ?Callback) *Widget {
     const w = gtk.gtk_menu_item_new_with_label(label);
-    if (on_activate) |cb| _ = gtk.g_signal_connect_data(w, "activate", @ptrCast(cb), null, null, 0) else gtk.gtk_widget_set_sensitive(w, 0);
+    _ = gtk.g_signal_connect_data(w, "activate", @ptrCast(on_activate orelse &onInfo), null, null, 0);
     gtk.gtk_menu_shell_append(menu, w);
     return w;
 }
@@ -388,8 +491,17 @@ pub fn run(t: *Tray) !void {
     gtk.app_indicator_set_title(indicator, "Direct360 Helper Agent");
 
     const menu = gtk.gtk_menu_new();
-    _ = item(menu, "Direct360 Helper Agent " ++ machine.version, null);
-    item_status = item(menu, "Starting…", null);
+    _ = item(menu, comptime bold("Direct360 Helper Agent " ++ machine.version), null);
+    // The status after the LED, as on Windows.
+    item_status = gtk.gtk_image_menu_item_new_with_label("Starting…");
+    _ = gtk.g_signal_connect_data(item_status, "activate", @ptrCast(&onInfo), null, null, 0);
+    const led = ledPixbuf(statusColor()) orelse return error.GtkMissing;
+    led_image = gtk.gtk_image_new_from_pixbuf(led);
+    gtk.g_object_unref(led);
+    last_led = statusColor();
+    gtk.gtk_image_menu_item_set_image(item_status, led_image);
+    gtk.gtk_image_menu_item_set_always_show_image(item_status, 1);
+    gtk.gtk_menu_shell_append(menu, item_status);
     for (&item_jobs) |*w| w.* = item(menu, "", null);
     separator(menu);
     item_connect = item(menu, "Connect to Direct360…", onConnect);
